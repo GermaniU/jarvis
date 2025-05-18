@@ -1,16 +1,16 @@
 """
 web.py - Motor de búsqueda web con enfoque en privacidad
 """
-import random
-import time
-import requests
-import json
 import os
 import re
-import logging
-from datetime import datetime
-from bs4 import BeautifulSoup
+import json
 import hashlib
+import time
+import random
+import logging
+import requests
+from bs4 import BeautifulSoup
+from datetime import datetime
 from typing import Dict, List, Optional, Any, Union
 from urllib.parse import urlparse, urljoin
 
@@ -370,209 +370,77 @@ class MotorWebPrivado:
         match = re.search(r'^(https?://[^/]+)', url)
         return match.group(1) if match else url
 
-    def obtener_contenido_pagina(self, url: str) -> Optional[Dict[str, Any]]:
+    def obtener_contenido_pagina(self, url: str, headers: Dict[str, str] = None) -> Dict[str, Any]:
         """
-        Extrae el contenido de una página web con manejo mejorado
+        Obtiene el contenido de una página web y lo procesa en un formato estructurado
         
         Args:
-            url: URL de la página a analizar
+            url: URL de la página
+            headers: Cabeceras HTTP personalizadas
             
         Returns:
-            Diccionario con el contenido y metadatos de la página, o None si hubo error
+            Dict[str, Any]: Contenido estructurado de la página
         """
-        url = url.strip()
-
         try:
-            # Asegurar que la URL comience con http:// o https://
-            if not url.startswith(('http://', 'https://')):
-                url = 'https://' + url
-
-            # Verificar si la URL es válida
-            parsed_url = urlparse(url)
-            if not all([parsed_url.scheme, parsed_url.netloc]):
-                logger.error(f"URL inválida: {url}")
-                return None
-
-            # Generar hash de la URL para caché
-            url_hash = hashlib.md5(url.encode()).hexdigest()
-            cache_path = os.path.join(self.cache_dir, f"page_{url_hash}.json")
-
-            # Verificar caché
-            if self._is_cache_valid(cache_path):
-                try:
-                    with open(cache_path, 'r', encoding='utf-8') as f:
-                        cached_result = json.load(f)
-                        logger.info(f"📚 Usando caché para URL: {url}")
-                        return cached_result
-                except Exception as e:
-                    logger.error(f"Error al leer caché: {e}")
-
-            logger.info(f"Descargando contenido de {url}")
-
-            # Headers rotatorios para evitar bloqueos
-            user_agents = self.preferences.get("user_agents", [self.user_agent])
-            headers = {
-                "User-Agent": random.choice(user_agents),
-                "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8",
-                "Accept-Language": "es-ES,es;q=0.9,en;q=0.8",
-                "Connection": "keep-alive",
-                "Upgrade-Insecure-Requests": "1",
-                "Cache-Control": "max-age=0"
-            }
-
-            # Gestión de sesión para cookies
-            session = requests.Session()
+            # Usar headers personalizados o predeterminados
+            headers = headers or self.headers
             
-            # Varios intentos para manejar posibles errores
-            for intento in range(self.max_retry):
-                try:
-                    response = session.get(url, headers=headers, timeout=20)
-                    break
-                except (requests.Timeout, requests.ConnectionError) as e:
-                    if intento == self.max_retry - 1:
-                        raise
-                    logger.warning(f"Reintentando descarga ({intento+1}/{self.max_retry}): {e}")
-                    time.sleep(2)
-
-            # Manejo de redirecciones
-            if response.status_code in (301, 302, 307, 308) and 'Location' in response.headers:
-                url_redireccion = response.headers['Location']
-                if not url_redireccion.startswith(('http://', 'https://')):
-                    base_url = '/'.join(url.split('/')[:3])  # http(s)://dominio.com
-                    url_redireccion = f"{base_url}{url_redireccion}"
-                logger.info(f"Siguiendo redirección a {url_redireccion}")
-                response = session.get(url_redireccion, headers=headers, timeout=20)
-
-            # Manejo de acceso denegado
-            if response.status_code == 403:
-                logger.warning("Acceso denegado (403). Reintentando con User-Agent alternativo...")
-                time.sleep(2)
-                headers["User-Agent"] = random.choice(user_agents)
-                response = session.get(url, headers=headers, timeout=20)
-
-            if response.status_code != 200:
-                logger.error(f"Error HTTP {response.status_code} al acceder a {url}")
-                if any(x in url for x in ["coinbase", "bitcoin", "crypto", "binance"]):
-                    logger.info("Usando fuente alternativa para criptomonedas.")
-                    return self._obtener_datos_cripto_alternativa(url)
-                return None
-
-            # Detección del juego de caracteres
-            encoding = response.encoding
-            if encoding == 'ISO-8859-1' and 'charset=utf-8' in response.text.lower():
-                encoding = 'utf-8'
+            # Realizar solicitud HTTP
+            response = requests.get(url, headers=headers, timeout=10)
+            response.raise_for_status()
             
-            html_content = response.content.decode(encoding, errors='replace')
-            soup = BeautifulSoup(html_content, 'html.parser')
-
-            # Eliminar elementos no deseados
-            for tag in soup(['script', 'style', 'footer', 'nav', 'header', 'aside', 'iframe', 'form', 'noscript']):
-                tag.decompose()
-
-            # Extraer título mejorado
-            titulo = "Sin título"
-            if soup.title:
-                titulo = soup.title.string.strip()
-            elif soup.find('meta', property='og:title'):
-                titulo = soup.find('meta', property='og:title')['content'].strip()
-            elif soup.find('h1'):
-                titulo = soup.find('h1').get_text().strip()
-
-            # Extraer descripción para resumen
-            descripcion = ""
-            if soup.find('meta', attrs={'name': 'description'}):
-                descripcion = soup.find('meta', attrs={'name': 'description'})['content'].strip()
-            elif soup.find('meta', property='og:description'):
-                descripcion = soup.find('meta', property='og:description')['content'].strip()
-
-            # Extracción específica por sitio
-            contenido = ""
-            site_extractors = {
-                "github.com": self._extraer_github,
-                "stackoverflow.com": self._extraer_stackoverflow,
-                "stackexchange.com": self._extraer_stackoverflow,
-                "wikipedia.org": self._extraer_wikipedia,
-                "youtube.com": self._extraer_youtube,
-                "youtu.be": self._extraer_youtube,
-                "twitter.com": self._extraer_twitter,
-                "x.com": self._extraer_twitter,
-                "reddit.com": self._extraer_reddit,
-                "amazon.": self._extraer_amazon,
-                "medium.com": self._extraer_medium
-            }
+            # Crear objeto BeautifulSoup
+            soup = BeautifulSoup(response.text, 'html.parser')
             
-            # Intentar usar extractores específicos
-            for domain, extractor in site_extractors.items():
-                if domain in url:
-                    contenido = extractor(soup)
-                    if contenido:
-                        break
-                        
-            # Si no se extrajo contenido con extractores específicos
-            if not contenido:
-                if "docs." in url or ".documentation" in url or "/docs/" in url:
-                    contenido = self._extraer_documentacion(soup)
-                    
-            # Si aún no hay contenido útil, usar estrategia general
-            if not contenido:
-                contenido = self._extraer_contenido_general(soup)
-
-            # Limpiar contenido final
-            contenido = re.sub(r'\n{3,}', '\n\n', contenido)  # Eliminar líneas en blanco excesivas
-            contenido = contenido.strip()
-
-            # Extraer tablas si hay pocas
-            tablas_html = soup.find_all('table')
-            tablas = self._extraer_tablas(soup) if len(tablas_html) <= 5 else []
+            # Extraer título
+            titulo = soup.title.string if soup.title else "Sin título"
             
-            # Extraer otros datos
-            datos_comerciales = self._extraer_datos_comerciales(soup, contenido)
-            datos_contacto = self._extraer_datos_contacto(soup, contenido)
+            # Extraer contenido principal
+            contenido = self._extraer_contenido_principal(soup)
             
-            # Crear resultado con metadatos enriquecidos
+            # Extraer metadatos
+            metadatos = self._extraer_metadatos(soup, url)
+            
+            # Extraer tablas
+            tablas = self._extraer_tablas(soup, url)
+            
+            # Extraer imágenes relevantes
+            imagenes = self._extraer_imagenes(soup, url)
+            
+            # Crear y devolver resultado estructurado
             resultado = {
-                "titulo": titulo,
-                "descripcion": descripcion[:300] if descripcion else "",
-                "contenido": contenido.strip(),
                 "url": url,
-                "timestamp": datetime.now().isoformat(),
-                "longitud": len(contenido),
-                "tipo_contenido": self._detectar_tipo_contenido(url, soup),
-                "datos_comerciales": datos_comerciales,
-                "datos_contacto": datos_contacto,
+                "titulo": titulo,
+                "contenido": contenido,
+                "metadatos": metadatos,
                 "tablas": tablas,
-                "imagenes": self._extraer_imagenes(soup, url)
+                "imagenes": imagenes,
+                "fecha_extraccion": datetime.now().isoformat()
             }
-
-            # Guardar en caché
-            with open(cache_path, 'w', encoding='utf-8') as f:
-                json.dump(resultado, f, indent=2, ensure_ascii=False)
-
-            logger.info(f"✅ Contenido extraído correctamente de {url} ({len(contenido)} caracteres)")
+            
             return resultado
-
-        except requests.exceptions.Timeout:
-            logger.error(f"Tiempo de espera agotado al acceder a {url}")
-            return {"titulo": "Error de tiempo de espera", "contenido": "La página tardó demasiado en responder.", "url": url}
-        except requests.exceptions.TooManyRedirects:
-            logger.error(f"Demasiadas redirecciones al acceder a {url}")
-            return {"titulo": "Error de redirección", "contenido": "La página tiene demasiadas redirecciones.", "url": url}
-        except requests.exceptions.SSLError:
-            logger.error(f"Error SSL al acceder a {url}")
-            return {"titulo": "Error de seguridad SSL", "contenido": "No se pudo establecer una conexión segura con el sitio.", "url": url}
+            
         except Exception as e:
             logger.error(f"Error al obtener contenido de {url}: {e}")
-            return {"titulo": "Error de extracción", "contenido": f"No se pudo obtener el contenido: {str(e)}", "url": url}
+            return {
+                "url": url,
+                "titulo": "Error",
+                "contenido": f"No se pudo obtener el contenido: {str(e)}",
+                "metadatos": {},
+                "tablas": [],
+                "imagenes": [],
+                "fecha_extraccion": datetime.now().isoformat()
+            }
 
-    def _extraer_contenido_general(self, soup: BeautifulSoup) -> str:
+    def _extraer_contenido_principal(self, soup: BeautifulSoup) -> str:
         """
-        Extrae contenido general de una página web cuando no hay extractores específicos
+        Extrae el contenido principal de la página web
         
         Args:
-            soup: Objeto BeautifulSoup con el HTML parseado
+            soup: Objeto BeautifulSoup con el HTML de la página
             
         Returns:
-            Contenido extraído
+            str: Contenido extraído
         """
         # Estrategia de extracción principal: detectar el contenedor más relevante
         candidatos = soup.find_all(['article', 'main', 'section', 'div'])
@@ -673,281 +541,123 @@ class MotorWebPrivado:
         # Valor predeterminado
         return "web"
 
-    def _extraer_tablas(self, soup: BeautifulSoup) -> List[Dict[str, Any]]:
+    def _extraer_tablas(self, soup: BeautifulSoup, url: str) -> List[Dict[str, Any]]:
         """
-        Extrae tablas de datos y las convierte a formato estructurado
+        Extrae tablas de una página web y las devuelve en formato estructurado
         
         Args:
-            soup: Objeto BeautifulSoup con el HTML parseado
+            soup: Objeto BeautifulSoup con el contenido de la página
+            url: URL de la página de origen
             
         Returns:
-            Lista de tablas extraídas con metadatos
+            List[Dict[str, Any]]: Lista de tablas extraídas con su estructura
         """
-        tablas_extraidas = []
+        tablas = []
         
-        for i, tabla in enumerate(soup.find_all('table')):
+        # Buscar todas las tablas en la página
+        elementos_tabla = soup.find_all('table')
+        
+        for idx, tabla in enumerate(elementos_tabla):
             try:
-                # Detectar si la tabla tiene encabezados
-                encabezados = []
-                thead = tabla.find('thead')
-                if thead:
-                    encabezados = [th.get_text().strip() for th in thead.find_all('th')]
+                # Información básica de la tabla
+                info_tabla = {
+                    "id": idx + 1,
+                    "filas": 0,
+                    "columnas": 0,
+                    "encabezados": [],
+                    "datos": [],
+                    "datos_estructurados": []
+                }
                 
-                # Si no hay thead, buscar en la primera fila
-                if not encabezados:
-                    primera_fila = tabla.find('tr')
-                    if primera_fila:
-                        # Intentar con th primero
-                        encabezados = [th.get_text().strip() for th in primera_fila.find_all('th')]
-                        # Si no hay th, usar td
-                        if not encabezados:
-                            encabezados = [td.get_text().strip() for td in primera_fila.find_all('td')]
+                # Extraer filas
+                filas = tabla.find_all('tr')
+                info_tabla["filas"] = len(filas)
                 
-                # Procesar filas
-                filas = []
-                for tr in tabla.find_all('tr')[1:] if encabezados else tabla.find_all('tr'):
-                    fila = [td.get_text().strip() for td in tr.find_all(['td', 'th'])]
-                    if fila:  # Ignorar filas vacías
-                        filas.append(fila)
+                # Procesar encabezados (th) en la primera fila si existen
+                encabezados = filas[0].find_all('th') if filas else []
                 
-                # Convertir a formato estructurado si hay encabezados
-                datos_tabla = []
-                if encabezados and filas:
-                    for fila in filas:
-                        if len(fila) == len(encabezados):
-                            datos_tabla.append(dict(zip(encabezados, fila)))
-                
-                if filas:
-                    tablas_extraidas.append({
-                        "indice": i+1,
-                        "filas": len(filas),
-                        "columnas": len(filas[0]) if filas else 0,
-                        "encabezados": encabezados,
-                        "datos_brutos": filas[:10],  # Limitar a 10 filas para reducir tamaño
-                        "datos_estructurados": datos_tabla[:10] if encabezados else []
-                    })
-            except Exception as e:
-                logger.error(f"Error al procesar tabla: {e}")
-        
-        return tablas_extraidas
-
-    def _extraer_imagenes(self, soup: BeautifulSoup, url_base: str) -> List[Dict[str, str]]:
-        """
-        Extrae imágenes con metadatos y contexto
-        
-        Args:
-            soup: Objeto BeautifulSoup con el HTML parseado
-            url_base: URL base para resolver rutas relativas
-            
-        Returns:
-            Lista de imágenes extraídas con metadatos
-        """
-        imagenes = []
-        
-        for i, img in enumerate(soup.find_all('img')):
-            try:
-                # Obtener atributos básicos
-                src = img.get('src', '')
-                if not src:
-                    continue
-                    
-                # Normalizar URL
-                if src.startswith('/'):
-                    src = f"{self._extraer_dominio_completo(url_base)}{src}"
-                elif not src.startswith(('http://', 'https://')):
-                    # Es una URL relativa
-                    src = f"{url_base.rstrip('/')}/{src.lstrip('/')}"
-                
-                # Recolectar metadatos
-                alt = img.get('alt', '')
-                title = img.get('title', '')
-                width = img.get('width', '')
-                height = img.get('height', '')
-                
-                # Determinar el contexto (texto cercano)
-                contexto = ""
-                
-                # Buscar texto en elementos padres o hermanos
-                parent = img.parent
-                if parent:
-                    # Buscar en texto del padre directo
-                    parent_text = parent.get_text().strip()
-                    if parent_text:
-                        contexto = parent_text[:100] + "..." if len(parent_text) > 100 else parent_text
-                    else:
-                        # Buscar en figcaption si existe
-                        figcaption = parent.find('figcaption')
-                        if figcaption:
-                            contexto = figcaption.get_text().strip()
-                
-                # Si aún no tenemos contexto, buscar en encabezados cercanos
-                if not contexto:
-                    for heading in ['h1', 'h2', 'h3', 'h4']:
-                        prev_heading = img.find_previous(heading)
-                        if prev_heading and prev_heading.get_text().strip():
-                            contexto = prev_heading.get_text().strip()
-                            break
-                
-                # Limitar imágenes a las primeras 20 para evitar sobrecarga
-                if len(imagenes) < 20:
-                    imagenes.append({
-                        "indice": i+1,
-                        "src": src,
-                        "alt": alt,
-                        "title": title,
-                        "dimensiones": f"{width}x{height}" if width and height else "",
-                        "contexto": contexto
-                    })
+                if encabezados:
+                    info_tabla["encabezados"] = [self._limpiar_texto(th.text) for th in encabezados]
+                    info_tabla["columnas"] = len(encabezados)
                 else:
-                    break
+                    # Intentar determinar columnas a partir de la primera fila de datos
+                    celdas_primera_fila = filas[0].find_all('td') if filas else []
+                    info_tabla["columnas"] = len(celdas_primera_fila)
+                    
+                    # Generar nombres de columna automáticos
+                    info_tabla["encabezados"] = [f"Columna {i+1}" for i in range(info_tabla["columnas"])]
+                
+                # Procesar filas de datos
+                for i, fila in enumerate(filas):
+                    # Omitir la primera fila si tenía encabezados
+                    if i == 0 and encabezados:
+                        continue
+                    
+                    celdas = fila.find_all(['td', 'th'])
+                    if not celdas:
+                        continue
+                        
+                    # Extraer texto de cada celda
+                    fila_datos = [self._limpiar_texto(celda.text) for celda in celdas]
+                    
+                    # Añadir a los datos crudos
+                    info_tabla["datos"].append(fila_datos)
+                    
+                    # Crear diccionario estructurado para esta fila
+                    if info_tabla["encabezados"] and len(fila_datos) == len(info_tabla["encabezados"]):
+                        fila_dict = {
+                            info_tabla["encabezados"][j]: fila_datos[j]
+                            for j in range(len(fila_datos))
+                        }
+                        info_tabla["datos_estructurados"].append(fila_dict)
+                
+                # Añadir contexto
+                elementos_contexto = []
+                
+                # Buscar caption de tabla
+                caption = tabla.find('caption')
+                if caption:
+                    elementos_contexto.append(f"Título: {self._limpiar_texto(caption.text)}")
+                
+                # Buscar encabezado más cercano
+                for tag in ['h1', 'h2', 'h3', 'h4']:
+                    encabezado = tabla.find_previous(tag)
+                    if encabezado:
+                        elementos_contexto.append(f"Sección: {self._limpiar_texto(encabezado.text)}")
+                        break
+                
+                # Añadir contexto si existe
+                if elementos_contexto:
+                    info_tabla["contexto"] = " | ".join(elementos_contexto)
+                    
+                # Añadir metadatos
+                info_tabla["url_origen"] = url
+                
+                # Añadir tabla al resultado
+                tablas.append(info_tabla)
+                
             except Exception as e:
-                logger.error(f"Error al procesar imagen: {e}")
+                logger.error(f"Error al extraer tabla {idx}: {e}")
         
-        return imagenes
+        logger.info(f"Extraídas {len(tablas)} tablas de {url}")
+        return tablas
 
-    def _extraer_datos_comerciales(self, soup: BeautifulSoup, contenido_texto: str) -> Dict[str, Any]:
+    def _limpiar_texto(self, texto: str) -> str:
         """
-        Extrae precios, SKUs, información de producto y disponibilidad
+        Limpia texto eliminando espacios extra y saltos de línea
         
         Args:
-            soup: Objeto BeautifulSoup con el HTML parseado
-            contenido_texto: Texto del contenido extraído
+            texto: Texto a limpiar
             
         Returns:
-            Diccionario con datos comerciales extraídos
+            str: Texto limpio
         """
-        datos = {
-            "precios": [],
-            "sku": None,
-            "disponibilidad": None,
-            "rating": None,
-            "moneda": None
-        }
-        
-        # Detectar moneda predominante
-        monedas = {
-            "$": "USD",
-            "€": "EUR",
-            "£": "GBP",
-            "¥": "JPY",
-            "₹": "INR",
-            "A$": "AUD",
-            "C$": "CAD",
-            "MX$": "MXN"
-        }
-        
-        moneda_encontrada = None
-        for simbolo, codigo in monedas.items():
-            if simbolo in contenido_texto:
-                moneda_encontrada = codigo
-                break
-        
-        datos["moneda"] = moneda_encontrada
-        
-        # Extraer precios usando patrones comunes
-        patrones_precio = [
-            r'\$\s*(\d+(?:[.,]\d{1,2})?)',  # $XX.XX
-            r'(\d+(?:[.,]\d{1,2})?)\s*\$',   # XX.XX$
-            r'€\s*(\d+(?:[.,]\d{1,2})?)',    # €XX.XX
-            r'(\d+(?:[.,]\d{1,2})?)\s*€',    # XX.XX€
-            r'£\s*(\d+(?:[.,]\d{1,2})?)',    # £XX.XX
-            r'(\d+(?:[.,]\d{1,2})?)\s*£',    # XX.XX£
-            r'price["\':\s]+(\d+(?:[.,]\d{1,2})?)',  # price: XX.XX
-            r'(?:price|cost|total)[\W_]+(\d+(?:[.,]\d{1,2})?)',  # price XX.XX
-            r'(\d+(?:[.,]\d{1,2})?)\s*(?:euros|dollars|USD|EUR)'  # XX.XX dollars
-        ]
-        
-        for patron in patrones_precio:
-            matches = re.findall(patron, contenido_texto)
-            datos["precios"].extend(matches)
-        
-        # Eliminar duplicados y normalizar
-        datos["precios"] = list(set(datos["precios"]))
-        
-        # Buscar SKU
-        sku_matches = re.search(r'(?:SKU|sku|product[_\s-]*id|item[_\s-]*number)[\W_]+([a-zA-Z0-9-]{4,20})', contenido_texto)
-        if sku_matches:
-            datos["sku"] = sku_matches.group(1)
-        
-        # Buscar disponibilidad
-        if re.search(r'out\s+of\s+stock|agotado|no\s+disponible', contenido_texto, re.IGNORECASE):
-            datos["disponibilidad"] = "No disponible"
-        elif re.search(r'in\s+stock|disponible|available', contenido_texto, re.IGNORECASE):
-            datos["disponibilidad"] = "En stock"
-        
-        # Buscar rating
-        rating_match = re.search(r'([0-5](?:\.[0-9])?)[\s/]+5', contenido_texto)
-        if rating_match:
-            datos["rating"] = rating_match.group(1)
-        
-        return datos
-
-    def _extraer_datos_contacto(self, soup: BeautifulSoup, contenido_texto: str) -> Dict[str, Any]:
-        """
-        Extrae emails, teléfonos, direcciones y otros datos de contacto
-        
-        Args:
-            soup: Objeto BeautifulSoup con el HTML parseado
-            contenido_texto: Texto del contenido extraído
+        if not texto:
+            return ""
             
-        Returns:
-            Diccionario con datos de contacto extraídos
-        """
-        contacto = {
-            "emails": [],
-            "telefonos": [],
-            "direcciones": [],
-            "redes_sociales": {}
-        }
-        
-        # Extraer emails
-        emails = re.findall(r'[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}', contenido_texto)
-        contacto["emails"] = list(set(emails))  # Eliminar duplicados
-        
-        # Extraer teléfonos (múltiples formatos)
-        patrones_telefono = [
-            r'\+\d{1,4}[\s-]?\d{1,3}[\s-]?\d{3,4}[\s-]?\d{3,4}',  # +XX XXX XXXX XXX
-            r'\(\d{3,4}\)[\s-]?\d{3}[\s-]?\d{4}',  # (XXX) XXX XXXX
-            r'\d{3}[\s-]?\d{2,3}[\s-]?\d{2,3}[\s-]?\d{2,3}'  # XXX XX XX XX
-        ]
-        
-        telefonos = []
-        for patron in patrones_telefono:
-            telefonos.extend(re.findall(patron, contenido_texto))
-        contacto["telefonos"] = list(set(telefonos))  # Eliminar duplicados
-        
-        # Extraer direcciones (heurística simple)
-        # Buscar patrones comunes como códigos postales
-        lineas = contenido_texto.split('\n')
-        for i, linea in enumerate(lineas):
-            if re.search(r'\b\d{5}\b|\b[A-Z]{1,2}\d{1,2}\s\d[A-Z]{2}\b', linea):  # Código postal US o UK
-                # Tomar 2 líneas antes y después como posible dirección
-                inicio = max(0, i-2)
-                fin = min(len(lineas), i+3)
-                direccion_potencial = ' '.join(lineas[inicio:fin]).strip()
-                if len(direccion_potencial) > 10 and len(direccion_potencial) < 200:
-                    contacto["direcciones"].append(direccion_potencial)
-        
-        # Extraer enlaces a redes sociales
-        redes_sociales = {
-            'facebook': r'(?:facebook\.com|fb\.com)/([a-zA-Z0-9._%+-]+)',
-            'twitter': r'(?:twitter\.com|x\.com)/([a-zA-Z0-9_]+)',
-            'instagram': r'instagram\.com/([a-zA-Z0-9_.]+)',
-            'linkedin': r'linkedin\.com/(?:in|company)/([a-zA-Z0-9_-]+)',
-            'youtube': r'youtube\.com/(?:user|channel)/([a-zA-Z0-9_-]+)',
-            'github': r'github\.com/([a-zA-Z0-9_-]+)'
-        }
-        
-        for red, patron in redes_sociales.items():
-            for a in soup.find_all('a', href=re.compile(patron)):
-                try:
-                    match = re.search(patron, a['href'])
-                    if match:
-                        contacto["redes_sociales"][red] = match.group(1)
-                except:
-                    continue
-        
-        return contacto
+        # Eliminar espacios extra y saltos de línea
+        texto = re.sub(r'\s+', ' ', texto.strip())
+        return texto
 
     def obtener_fecha_actual(self) -> Dict[str, Any]:
         """

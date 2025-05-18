@@ -54,3 +54,7 @@ jarvis_web.log
 
 # Mantener estructura de directorios pero no su contenido
 !.gitkeep
+
+.jarvis-env/
+jarvis-env/
+jarvis-env/
