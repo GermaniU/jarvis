@@ -202,3 +202,42 @@ Este proyecto está licenciado bajo MIT License - vea el archivo LICENSE para m�
 ---
 
 **JARVIS** - Tu asistente virtual personal, privado y potente. ¡Disfruta conversando, aprendiendo y explorando!
+
+
+
+### 1. Mejoras visuales y de usabilidad
+
+- **Diseño más moderno:** Interfaz completamente rediseñada con mejor organización visual y mayor espacio.
+- **Temas mejorados:** Sistema de temas oscuro/claro con transiciones suaves.
+- **Diseño responsivo:** Mejor adaptación a diferentes tamaños de pantalla.
+- **Indicadores visuales:** Estados del sistema claramente visibles en todo momento.
+
+### 2. Nuevas funcionalidades
+
+- **Sistema de configuración completo:** Panel dedicado para personalizar todos los aspectos del asistente.
+- **Exportación de conversaciones:** Exporta chats a diferentes formatos (Markdown, TXT, JSON).
+- **Guardado automático:** Sistema para guardar conversaciones por inactividad.
+- **Comandos rápidos:** Acceso con un clic a las funciones más comunes.
+- **Mejor visualización del proceso de pensamiento:** Opción para ver cómo "piensa" JARVIS.
+- **Personalización de fuente:** Ajustes de tamaño de texto para mejor legibilidad.
+
+### 3. Mejoras en el motor web
+
+- **Búsquedas mejoradas:** Resultados más relevantes y formateo más legible.
+- **Análisis web enriquecido:** Mayor detalle al analizar páginas web.
+- **Configuración de fuentes preferidas/bloqueadas:** Control sobre qué sitios utilizar.
+
+### 4. Mejoras técnicas
+
+- **Estructura de código modular:** Mejor organización interna para facilitar el mantenimiento.
+- **Gestión de errores mejorada:** Sistema robusto que maneja fallos de manera elegante.
+- **Sistema de logging avanzado:** Mejor registro de actividades y errores.
+- **Configuración persistente:** Guarda preferencias entre sesiones.
+- **Manejo de inactividad:** Sistema que detecta períodos sin uso.
+
+### 5. Experiencia de usuario mejorada
+
+- **Mensajes de bienvenida más informativos:** Mejor introducción al sistema.
+- **Indicadores de estado claros:** El usuario siempre sabe qué está pasando.
+- **Mensajes de error más amigables:** Explicaciones claras cuando algo falla.
+- **Información contextual:** Tooltips y ayudas para entender las funciones.
