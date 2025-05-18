@@ -14,6 +14,7 @@ import sys
 import logging
 import argparse
 from typing import Dict, List, Any, Optional
+import re
 
 # Configuración de logging
 logging.basicConfig(
@@ -40,6 +41,7 @@ class Jarvis:
         self.chat_engine = None
         self.interfaz = None
         self.componentes = {}
+        self.memory_dir = "memory"  # Añade esta línea
         
         logger.info(f"Inicializando {self.name} v{self.version}")
     
@@ -83,38 +85,63 @@ class Jarvis:
             bool: True si se inicializó correctamente
         """
         try:
-            logger.info("Inicializando sistema de memoria...")
+            logger.info("Inicializando sistema de memoria híbrida...")
             
-            # Primero configurar modelo de embeddings
-            from chatbot.memoria import configurar_embedding_model, MemoryManager
-            embedding_ok = configurar_embedding_model()
-            if not embedding_ok:
-                logger.warning("No se pudo configurar modelo de embeddings, continuando con funcionalidad limitada")
-            
-            # Crear gestor de memoria
-            self.memoria = MemoryManager()
-            if not hasattr(self.memoria, 'index') or self.memoria.index is None:
-                logger.warning("Memoria inicializada pero sin índice de vectores disponible")
-            else:
-                logger.info("Sistema de memoria inicializado con índice de vectores")
+            # Importar adaptador de memoria
+            try:
+                from chatbot.memoria_hibrida import MemoryAdapter
+                # Crear instancia del adaptador que elegirá el mejor sistema disponible
+                self.memoria = MemoryAdapter(memory_dir=self.memory_dir)
+                logger.info("Adaptador de memoria híbrida inicializado correctamente")
+            except ImportError as e:
+                logger.warning(f"Adaptador de memoria híbrida no disponible: {e}")
+                # Continuar con el sistema tradicional
+                raise ImportError("Fallback a sistema tradicional")
                 
             # Registrar en componentes
             self.componentes["memoria"] = self.memoria
+            
+            # Verificar y registrar capacidades disponibles
+            if hasattr(self.memoria, "tiene_capacidad"):
+                capacidades = {
+                    "vectorial": self.memoria.tiene_capacidad("vectorial"),
+                    "hibrida": self.memoria.tiene_capacidad("hibrida"),
+                    "temas_importantes": self.memoria.tiene_capacidad("temas_importantes")
+                }
+                logger.info(f"Capacidades de memoria: {capacidades}")
+            
             return True
         except Exception as e:
-            logger.error(f"Error al inicializar sistema de memoria: {e}")
+            logger.error(f"Error al inicializar sistema de memoria híbrida: {e}")
             
-            # Intentar crear una versión simplificada de memoria como fallback
+            # Intentar crear una versión tradicional de memoria como fallback
             try:
-                from chatbot.memoria_simple import MemoryManagerSimple
-                self.memoria = MemoryManagerSimple()
-                logger.warning("Se ha inicializado una versión simplificada de memoria como alternativa")
+                logger.info("Inicializando sistema de memoria tradicional...")
+                from chatbot.memoria import configurar_embedding_model, MemoryManager
+                embedding_ok = configurar_embedding_model()
+                self.memoria = MemoryManager()
+                if not hasattr(self.memoria, 'index') or self.memoria.index is None:
+                    logger.warning("Memoria inicializada pero sin índice de vectores disponible")
+                else:
+                    logger.info("Sistema de memoria tradicional inicializado con índice de vectores")
+                    
+                # Registrar en componentes
                 self.componentes["memoria"] = self.memoria
                 return True
             except Exception as e2:
-                logger.critical(f"Error crítico al crear memoria alternativa: {e2}")
-                return False
-    
+                logger.error(f"Error al inicializar memoria vectorial: {e2}")
+                
+                # Último intento: memoria simple
+                try:
+                    from chatbot.memoria_simple import MemoryManagerSimple
+                    self.memoria = MemoryManagerSimple()
+                    logger.warning("Se ha inicializado memoria simple como alternativa final")
+                    self.componentes["memoria"] = self.memoria
+                    return True
+                except Exception as e3:
+                    logger.critical(f"Error crítico al crear cualquier sistema de memoria: {e3}")
+                    return False
+            
     def _inicializar_plugins(self) -> None:
         """Inicializa el sistema de plugins"""
         try:
@@ -252,69 +279,226 @@ class Jarvis:
             logger.warning("Fallback a interfaz de línea de comandos")
             self._iniciar_cli()
     
-    def procesar_mensaje(self, mensaje: str) -> str:
+    def procesar_mensaje(self, mensaje: str, user_id: str = None) -> str:
         """
         Procesa un mensaje y devuelve una respuesta
         
         Args:
             mensaje: Mensaje a procesar
+            user_id: ID del usuario (opcional)
             
         Returns:
             str: Respuesta al mensaje
         """
+        # Analizar si el mensaje contiene temas importantes
+        self._analizar_temas_importantes(mensaje)
+        
         # Intentar procesar con plugins primero
         if self.plugins:
             try:
-                respuesta_plugin = self.plugins.process_message(mensaje)
+                respuesta_plugin = self.plugins.process_message(mensaje, user_id)
                 if respuesta_plugin:
-                    # Registrar en memoria la interacción
-                    if self.memoria:
-                        self.memoria.guardar_recuerdo(f"Usuario: {mensaje}\nAsistente: {respuesta_plugin}")
+                    # Guardar interacción en memoria
+                    self._guardar_en_memoria(mensaje, respuesta_plugin, 
+                                            es_plugin=True, 
+                                            plugin_name=getattr(self.plugins, "last_plugin_name", None))
                     
-                    # Ejecutar hook de respuesta
-                    self.plugins.trigger_hook("message_response", mensaje, respuesta_plugin)
-                    
+                    # Aplicar modificaciones de plugins
+                    if hasattr(self.plugins, "modify_response"):
+                        respuesta_plugin = self.plugins.modify_response(mensaje, respuesta_plugin, user_id)
+                        
                     return respuesta_plugin
             except Exception as e:
                 logger.error(f"Error al procesar mensaje con plugins: {e}")
-                # Continuar con el procesamiento normal
-        
-        # Si no hay respuesta de plugins, usar el chat_engine
+                # Continuar con procesamiento normal si falla el plugin
+    
         try:
+            # Verificar disponibilidad del motor de chat
             if not self.chat_engine:
                 return "Lo siento, el sistema de procesamiento de lenguaje no está disponible."
             
-            # Obtener contexto relevante de memoria
-            contexto = ""
-            if self.memoria and hasattr(self.memoria, 'obtener_contexto_relevante'):
-                contexto = self.memoria.obtener_contexto_relevante(mensaje)
+            # Obtener contexto relevante de la memoria
+            contexto = self._obtener_contexto_memoria(mensaje)
             
-            # Generar respuesta
+            # Generar respuesta según el tipo de chat_engine disponible
             if hasattr(self.chat_engine, 'chat'):
-                respuesta_obj = self.chat_engine.chat(mensaje, contexto=contexto)
+                # Formatear el prompt con instrucciones más claras y específicas
+                sistema_prompt = """
+                Eres JARVIS, un asistente con memoria persistente. Revisa cuidadosamente la siguiente información de tu memoria y úsala para responder la consulta.
+                
+                SI en la memoria hay información personal sobre el usuario (como nombre, preferencias, historia, datos, etc.) DEBES utilizarla activamente en tu respuesta y demostrar que recuerdas estos detalles.
+                
+                MEMORIA:
+                {}
+                
+                Ahora, responde a esta consulta recordando la información relevante anterior:
+                {}
+                """
+    
+                # Si hay contexto, formatearlo adecuadamente
+                if contexto:
+                    prompt_completo = sistema_prompt.format(contexto, mensaje)
+                else:
+                    prompt_completo = mensaje
+    
+                # Generar respuesta
+                respuesta_obj = self.chat_engine.chat(prompt_completo)
                 respuesta = respuesta_obj.text if hasattr(respuesta_obj, 'text') else str(respuesta_obj)
             else:
                 # Fallback a LLM directo
                 prompt = f"{contexto}\n\nUsuario: {mensaje}\n\nAsistente:"
                 respuesta = self.llm.complete(prompt).text
             
-            # Limpiar respuesta si tiene formato thinking
-            if "<think>" in respuesta and "</think>" in respuesta:
-                respuesta = respuesta.split("</think>")[-1].strip()
+            # Limpiar respuesta (eliminar thinking)
+            respuesta = self._limpiar_respuesta(respuesta)
             
-            # Guardar en memoria
-            if self.memoria:
-                self.memoria.guardar_recuerdo(f"Usuario: {mensaje}\nAsistente: {respuesta}")
+            # Guardar interacción en memoria
+            es_importante = self._detectar_info_importante(mensaje, respuesta)
+            self._guardar_en_memoria(mensaje, respuesta, es_importante=es_importante)
             
-            # Ejecutar hook de respuesta
-            if self.plugins:
-                self.plugins.trigger_hook("message_response", mensaje, respuesta)
+            # Aplicar modificaciones de plugins
+            if self.plugins and hasattr(self.plugins, "modify_response"):
+                respuesta = self.plugins.modify_response(mensaje, respuesta, user_id)
                 
             return respuesta
             
         except Exception as e:
             logger.error(f"Error al procesar mensaje: {e}")
             return f"Lo siento, ha ocurrido un error al procesar tu mensaje: {e}"
+    
+    def _obtener_contexto_memoria(self, mensaje: str) -> str:
+        """
+        Obtiene contexto relevante de la memoria para una consulta,
+        asegurándose de incluir siempre las últimas interacciones
+    
+        Args:
+            mensaje: Consulta del usuario
+            
+        Returns:
+            str: Contexto formateado
+        """
+        if not self.memoria:
+            return ""
+        
+        try:
+            # Usar el mejor método disponible según el tipo de memoria
+            if hasattr(self.memoria, 'obtener_contexto_combinado'):
+                # Usar capacidades avanzadas de memoria híbrida
+                # Aumentar top_k para tener más contexto
+                resultados = self.memoria.obtener_contexto_combinado(mensaje, top_k=8)
+                
+                # Asegurarse de que se incluyan al menos los 3 últimos recuerdos
+                ultimos_recuerdos = []
+                if hasattr(self.memoria, 'obtener_ultimos_recuerdos'):
+                    ultimos_recuerdos = self.memoria.obtener_ultimos_recuerdos(3)
+                    
+                    # Añadir los últimos recuerdos si no están ya incluidos
+                    ids_incluidos = {r.get("id", "") for r in resultados}
+                    for rec in ultimos_recuerdos:
+                        if rec.get("id", "") not in ids_incluidos:
+                            # Dar alta relevancia a los últimos recuerdos
+                            rec["score_final"] = 0.9
+                            resultados.append(rec)
+                
+                return self._formatear_resultados_memoria(resultados)
+            elif hasattr(self.memoria, 'obtener_contexto_relevante'):
+                # Usar método estándar
+                return self.memoria.obtener_contexto_relevante(mensaje)
+            else:
+                # Fallback a métodos básicos si existen
+                if hasattr(self.memoria, 'buscar_recuerdos'):
+                    recuerdos = self.memoria.buscar_recuerdos(mensaje, limite=3)
+                    return "\n\n".join(recuerdos) if recuerdos else ""
+                return ""
+        except Exception as e:
+            logger.error(f"Error al obtener contexto de memoria: {e}")
+            return ""
+    
+    def _limpiar_respuesta(self, respuesta: str) -> str:
+        """
+        Limpia la respuesta eliminando marcadores internos
+        
+        Args:
+            respuesta: Respuesta original
+            
+        Returns:
+            str: Respuesta limpia
+        """
+        # Eliminar sección thinking si existe
+        if "<think>" in respuesta and "</think>" in respuesta:
+            partes = respuesta.split("</think>")
+            respuesta = partes[-1].strip()
+        
+        # Eliminar otros posibles marcadores
+        respuesta = re.sub(r'<internal>.*?</internal>', '', respuesta, flags=re.DOTALL)
+        
+        return respuesta.strip()
+
+    def _guardar_en_memoria(self, mensaje: str, respuesta: str, 
+                           es_importante: bool = False, 
+                           es_plugin: bool = False,
+                           plugin_name: str = None) -> None:
+        """
+        Guarda una interacción en la memoria con manejo avanzado
+        
+        Args:
+            mensaje: Mensaje del usuario
+            respuesta: Respuesta del sistema
+            es_importante: Si debe marcarse como importante
+            es_plugin: Si la respuesta proviene de un plugin
+            plugin_name: Nombre del plugin que generó la respuesta
+        """
+        if not self.memoria:
+            return
+            
+        try:
+            # Determinar si es importante
+            if es_plugin and plugin_name in ["aprendizaje", "recordar", "info", "personal"]:
+                es_importante = True
+                
+            # Formatear interacción para guardar
+            texto_interaccion = f"Usuario: {mensaje}\nAsistente: {respuesta}"
+            
+            # Añadir metadatos si es respuesta de plugin
+            if es_plugin and plugin_name:
+                texto_interaccion = f"[Plugin: {plugin_name}] {texto_interaccion}"
+                
+            # Usar el método adecuado según capacidades
+            if hasattr(self.memoria, "guardar_recuerdo"):
+                # Verificar si el método acepta el parámetro es_importante
+                import inspect
+                params = inspect.signature(self.memoria.guardar_recuerdo).parameters
+                
+                if "es_importante" in params:
+                    self.memoria.guardar_recuerdo(texto_interaccion, es_importante=es_importante)
+                else:
+                    # Versión simple sin soporte para marcar importancia
+                    self.memoria.guardar_recuerdo(texto_interaccion)
+                    
+            # Comprobar si hay temas importantes en el mensaje+respuesta
+            if hasattr(self.memoria, "temas_importantes") and hasattr(self.memoria, "extraer_palabras_clave"):
+                try:
+                    # Verificar si el texto contiene algún tema importante existente
+                    texto_completo = f"{mensaje} {respuesta}".lower()
+                    for tema in self.memoria.temas_importantes:
+                        if tema.lower() in texto_completo:
+                            es_importante = True
+                            # Marcar recuerdo como importante si no se hizo antes
+                            if hasattr(self.memoria, "marcar_ultimo_recuerdo_importante"):
+                                self.memoria.marcar_ultimo_recuerdo_importante()
+                            break
+                            
+                    # Extraer nuevos temas importantes potenciales
+                    if es_importante and hasattr(self.memoria, "agregar_tema_importante"):
+                        palabras = self.memoria.extraer_palabras_clave(texto_completo, max_keywords=5)
+                        for palabra in palabras:
+                            if len(palabra) > 3:  # Evitar palabras muy cortas
+                                self.memoria.agregar_tema_importante(palabra)
+                except Exception as e:
+                    logger.error(f"Error al procesar temas importantes: {e}")
+                    
+        except Exception as e:
+            logger.error(f"Error al guardar en memoria: {e}")
     
     def cerrar(self) -> None:
         """Cierra ordenadamente todos los componentes"""
@@ -330,6 +514,146 @@ class Jarvis:
         # Cerrar otros componentes si es necesario
         
         logger.info("Sistema cerrado correctamente")
+    
+    def recargar_sistema_memoria(self) -> bool:
+        """
+        Recarga el sistema de memoria
+        
+        Returns:
+            bool: True si se recargó correctamente
+        """
+        logger.info("Recargando sistema de memoria...")
+        
+        # Guardar referencia al sistema anterior
+        memoria_anterior = self.memoria
+        
+        # Intentar inicializar nuevo sistema
+        exito = self._inicializar_memoria()
+        
+        if not exito:
+            # Restaurar sistema anterior
+            self.memoria = memoria_anterior
+            logger.error("No se pudo recargar el sistema de memoria")
+            return False
+        
+        logger.info("Sistema de memoria recargado correctamente")
+        return True
+
+    def _analizar_temas_importantes(self, mensaje: str) -> None:
+        """
+        Analiza si un mensaje contiene temas que deben marcarse como importantes
+        
+        Args:
+            mensaje: Mensaje a analizar
+        """
+        if not self.memoria or not hasattr(self.memoria, "agregar_tema_importante"):
+            return
+            
+        # Lista de términos que indican información importante
+        indicadores_importancia = [
+            "recuerda", "memoriza", "importante", "no olvides", 
+            "anota", "guarda", "mi información", "mi dato",
+            "mi nombre es", "mi dirección", "mi teléfono", "mi email"
+        ]
+        
+        mensaje_lower = mensaje.lower()
+        
+        # Verificar si contiene indicadores
+        if any(ind in mensaje_lower for ind in indicadores_importancia):
+            try:
+                # Intentar extraer palabras clave
+                if hasattr(self.memoria, "extraer_palabras_clave"):
+                    palabras = self.memoria.extraer_palabras_clave(mensaje)
+                    if palabras and len(palabras) > 0:
+                        for palabra in palabras[:3]:  # Tomar las 3 más relevantes
+                            if len(palabra) > 3:  # Evitar palabras muy cortas
+                                self.memoria.agregar_tema_importante(palabra)
+                                logger.debug(f"Tema importante añadido: {palabra}")
+            except Exception as e:
+                logger.error(f"Error al analizar temas importantes: {e}")
+
+    def _detectar_info_importante(self, mensaje: str, respuesta: str) -> bool:
+        """
+        Detecta si una interacción contiene información importante que debería reforzarse
+        
+        Args:
+            mensaje: Mensaje del usuario
+            respuesta: Respuesta del sistema
+            
+        Returns:
+            bool: True si debe marcarse como importante
+        """
+        # Términos que indican que la respuesta podría ser información importante
+        indicadores = [
+            "he guardado", "recordaré", "anotado", "registrado",
+            "tu información", "tus datos", "tu preferencia"
+        ]
+        
+        # Verificar primero en la respuesta 
+        respuesta_lower = respuesta.lower()
+        if any(ind in respuesta_lower for ind in indicadores):
+            return True
+        
+        # Verificar en el mensaje del usuario
+        mensaje_lower = mensaje.lower()
+        indicadores_mensaje = [
+            "recuerda", "no olvides", "importante", "guarda",
+            "memoriza", "anota", "mi información", "mi dato"
+        ]
+        
+        if any(ind in mensaje_lower for ind in indicadores_mensaje):
+            return True
+            
+        # Verificar si la respuesta contiene datos personalizados como nombres, fechas, etc.
+        patrones_info = [
+            r"(?:tu nombre es|te llamas) [A-Z][a-z]+",
+            r"(?:tu (?:teléfono|telefono|móvil|celular|número|numero)(?: es)?) [0-9+() -]{7,}",
+            r"(?:tu (?:dirección|direccion|email|correo)(?: es)?) \S+@\S+",
+            r"(?:tu (?:cumpleaños|cumpleanos|fecha)(?: es)?) \d{1,2}[/-]\d{1,2}"
+        ]
+        
+        for patron in patrones_info:
+            if re.search(patron, respuesta, re.IGNORECASE):
+                return True
+        
+        return False
+
+    def _formatear_resultados_memoria(self, resultados: List[Dict]) -> str:
+        """
+        Formatea resultados de memoria para uso en contexto
+        
+        Args:
+            resultados: Lista de resultados de memoria
+            
+        Returns:
+            str: Contexto formateado
+        """
+        if not resultados:
+            return ""
+            
+        contexto = []
+        for rec in resultados:
+            # Extraer fecha
+            fecha = rec.get("fecha", "Fecha desconocida")
+            
+            # Añadir marca si es importante
+            marca = " (⭐)" if rec.get("importante", False) else ""
+            
+            # Añadir fuente si está disponible
+            fuente = ""
+            if "fuente" in rec:
+                fuente = f" [{rec['fuente']}]"
+            
+            # Añadir indicador de relevancia para los primeros resultados
+            relevancia = ""
+            if rec.get("score_final", 0) > 0.7:
+                relevancia = "[MUY RELEVANTE] "
+            
+            # Formatear recuerdo
+            texto = rec["contenido"].strip()
+            contexto.append(f"{relevancia}[Recuerdo del {fecha}{marca}{fuente}]\n{texto}\n")
+        
+        return "\n".join(contexto)
 
 def parse_arguments():
     """Procesa argumentos de línea de comandos"""
@@ -387,3 +711,32 @@ def load_plugins(self) -> int:
     """
     plugins = self.load_all_plugins()
     return len(plugins)
+
+def shutdown(self):
+    """
+    Cierra ordenadamente todos los plugins activos
+    
+    Returns:
+        bool: True si se cerraron correctamente
+    """
+    logger.info("Cerrando plugins...")
+    
+    # Lista para seguir plugins con errores
+    plugins_con_error = []
+    
+    # Intentar cerrar cada plugin
+    for name, plugin in self.plugins.items():
+        if hasattr(plugin, 'shutdown'):
+            try:
+                plugin.shutdown()
+                logger.debug(f"Plugin {name} cerrado correctamente")
+            except Exception as e:
+                logger.error(f"Error al cerrar plugin {name}: {e}")
+                plugins_con_error.append(name)
+    
+    if plugins_con_error:
+        logger.warning(f"No se pudieron cerrar correctamente los plugins: {', '.join(plugins_con_error)}")
+    else:
+        logger.info("Todos los plugins cerrados correctamente")
+    
+    return len(plugins_con_error) == 0

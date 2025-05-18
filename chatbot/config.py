@@ -34,3 +34,14 @@ os.makedirs(DATA_DIR, exist_ok=True)
 # Obtener logger centralizado
 def get_logger(name):
     return logging.getLogger(name)
+
+
+# En config.py
+# Configuración para memoria híbrida
+MEMORIA_HIBRIDA = {
+    "PESO_MEMORIA_RECIENTE": 0.4,
+    "PESO_MEMORIA_SEMANTICA": 0.6,
+    "MAX_RECUERDOS_RECIENTES": 10,
+    "PRIORIDAD_TEMA_IMPORTANTE": 1.5,
+    "UMBRAL_RELEVANCIA": 0.2
+}
