@@ -16,10 +16,10 @@ from rich.table import Table
 from rich.progress import Progress
 from rich.syntax import Syntax
 # from llama_index.core.chat_engine import ContextChatEngine
-# from llama_index.core.memory import ChatMemoryBuffer
-# from llama_index.llms.ollama import ContextChatEngine
-from llama_index.chat_engine.context import ContextChatEngine
-from llama_index.memory.chat_memory_buffer import ChatMemoryBuffer
+from llama_index.core.memory import ChatMemoryBuffer
+from llama_index.core.chat_engine.context import ContextChatEngine
+# from llama_index.chat_engine.context import ContextChatEngine
+# from llama_index.memory.chat_memory_buffer import ChatMemoryBuffer
 
 from .memoria import MemoryManager
 from .asistente import obtener_llm
@@ -514,718 +514,124 @@ def explorar_resultado_web(resultado: Dict[str, Any]) -> None:
         except Exception as e:
             console.print(f"[red]Error al procesar opción: {e}[/red]")
 
-def ejecutar_chat(indice, llm, componentes=None) -> None:
-    """
-    Ejecuta una interfaz de chat en la terminal usando el índice y el modelo especificados
+def ejecutar_chat(indice=None, llm=None, componentes=None) -> None:
+    """Inicia la interfaz de chat interactiva en la consola"""
+    # Configurar logging
+    logger = logging.getLogger("interfaz")
     
-    Args:
-        indice: Índice vectorial para recuperación de contexto
-        llm: Modelo de lenguaje a utilizar
-        componentes: Diccionario con componentes adicionales
-    """
-    # Extraer componentes
-    web_util = componentes.get("web") if componentes else web
-    web_disp = componentes.get("web_disponible", web_disponible) if componentes else web_disponible
+    # Inicializar consola
+    console = Console()
+    console.print(Panel("[bold blue]JARVIS - Asistente Virtual[/bold blue]", 
+                        subtitle="Escribe 'salir' para terminar"))
     
-    # Memoria de chat y retriever
-    memory = ChatMemoryBuffer.from_defaults(token_limit=1500)
-    retriever = indice.as_retriever()
+    # Obtener componentes
+    componentes = componentes or {}
+    web = componentes.get("web")
+    web_disponible = componentes.get("web_disponible", False)
+    chat_engine = componentes.get("chat_engine")
     
-    # Cargar configuración
-    config = memoria.cargar_configuracion()
-    usar_voz = config.get("usar_voz", True)  # Por defecto activada
-    
-    # Instrucciones para el modelo
-    instrucciones = """
-    Eres Jarvis, un asistente personal amigable que SIEMPRE responde en español de forma clara.
-    
-    REGLAS CRÍTICAS:
-    1. NUNCA digas "no puedo cargar recuerdos anteriores" o frases similares.
-    2. SIEMPRE usa la información de los recuerdos proporcionados como base para tu respuesta.
-    3. Cuando te pregunten qué recuerdas o qué sabes, resume el contenido de los recuerdos.
-    4. Si te preguntan algo específico que aparece en los recuerdos, responde con esa información.
-    5. Si te preguntan sobre algo que no está en los recuerdos, di "No tengo esa información, pero puedo buscarla si deseas".
-    6. Sé natural y conversacional, no demasiado formal.
-    7. Cuando hables de sitios web o información de internet, ofrece análisis y opiniones útiles.
-    """
-
-    # Inicializar motor de chat
-    chat_engine = ContextChatEngine.from_defaults(
-        retriever=retriever,
-        llm=llm,
-        memory=memory,
-        verbose=True,
-        system_prompt=instrucciones
-    )
-    
-    # Mostrar mensaje de bienvenida y comenzar interacción
-    mostrar_mensaje_bienvenida()
-    console.print("[blue]Escribe 'salir' para terminar[/blue]")
-    
-    # Bucle principal de chat
-    while True:
-        entrada = input("\nTú: ")
-        
-        # Procesar comandos especiales
-        if entrada.lower() == "salir":
-            mostrar_despedida()
-            break
-            
-        elif entrada.lower() == "/ayuda":
-            mostrar_ayuda("general")
-            continue
-            
-        elif entrada.lower().startswith("/ayuda "):
-            categoria = entrada.split(" ")[1].strip()
-            mostrar_ayuda(categoria)
-            continue
-            
-        elif entrada.lower() == "/limpiar":
-            memory.reset()
-            mensaje = "Conversación actual limpiada"
-            console.print(f"[green]{mensaje}[/green]")
-            if usar_voz and voz_disponible:
-                voz.hablar(mensaje)
-            continue
-            
-        # Comandos de voz
-        elif entrada.lower() == "/voz on":
-            usar_voz = True
-            config["usar_voz"] = True
-            memoria.guardar_configuracion(config)
-            console.print("[green]Voz activada[/green]")
-            if voz_disponible:
-                voz.hablar("Voz activada")
-            continue
-            
-        elif entrada.lower() == "/voz off":
-            usar_voz = False
-            config["usar_voz"] = False
-            memoria.guardar_configuracion(config)
-            console.print("[yellow]Voz desactivada[/yellow]")
-            continue
-            
-        elif entrada.lower().startswith("/voz velocidad "):
-            try:
-                nueva_velocidad = int(entrada.split(" ")[-1])
-                if 100 <= nueva_velocidad <= 200:
-                    voz.cambiar_velocidad(nueva_velocidad)
-                    config["velocidad_voz"] = nueva_velocidad
-                    memoria.guardar_configuracion(config)
-                    mensaje = f"Velocidad de voz cambiada a {nueva_velocidad}"
-                    console.print(f"[green]{mensaje}[/green]")
-                    if usar_voz and voz_disponible:
-                        voz.hablar(mensaje)
-                else:
-                    console.print("[red]Velocidad debe estar entre 100 y 200[/red]")
-            except Exception as e:
-                console.print(f"[red]Error al cambiar velocidad: {e}[/red]")
-            continue
-            
-        elif entrada.lower().startswith("/voz volumen "):
-            try:
-                nuevo_volumen = float(entrada.split(" ")[-1])
-                if 0 <= nuevo_volumen <= 1:
-                    voz.cambiar_volumen(nuevo_volumen)
-                    config["volumen_voz"] = nuevo_volumen
-                    memoria.guardar_configuracion(config)
-                    mensaje = f"Volumen de voz cambiado a {nuevo_volumen}"
-                    console.print(f"[green]{mensaje}[/green]")
-                    if usar_voz and voz_disponible:
-                        voz.hablar(mensaje)
-                else:
-                    console.print("[red]Volumen debe estar entre 0.0 y 1.0[/red]")
-            except Exception as e:
-                console.print(f"[red]Error al cambiar volumen: {e}[/red]")
-            continue
-            
-        elif entrada.lower() == "/voces":
-            if voz_disponible:
-                voz.listar_voces()
-            else:
-                console.print("[yellow]El módulo de voz no está disponible[/yellow]")
-            continue
-            
-        elif entrada.lower().startswith("/voz cambiar "):
-            try:
-                if voz_disponible:
-                    indice_voz = int(entrada.split(" ")[-1])
-                    if voz.cambiar_voz(indice_voz):
-                        config["indice_voz"] = indice_voz
-                        memoria.guardar_configuracion(config)
-                        mensaje = f"Voz cambiada al índice {indice_voz}"
-                        console.print(f"[green]{mensaje}[/green]")
-                        if usar_voz:
-                            voz.hablar("Ahora estoy hablando con esta voz. ¿Qué te parece?")
-                    else:
-                        console.print("[red]Índice de voz no válido[/red]")
-                else:
-                    console.print("[yellow]El módulo de voz no está disponible[/yellow]")
-            except Exception as e:
-                console.print(f"[red]Error al cambiar voz: {e}[/red]")
-            continue
-            
-        # Guardar preferencias
-        elif entrada.lower().startswith("/guardar "):
-            try:
-                param = entrada[9:].strip()
-                if "=" in param:
-                    clave, valor = param.split("=", 1)  # Split solo en el primer =
-                    memoria.guardar_preferencia_usuario(clave.strip(), valor.strip())
-                    mensaje = f"Preferencia guardada: {clave.strip()} = {valor.strip()}"
-                    console.print(f"[green]{mensaje}[/green]")
-                    if usar_voz and voz_disponible:
-                        voz.hablar(mensaje)
-                else:
-                    console.print("[red]Formato incorrecto. Usa /guardar nombre=valor[/red]")
-            except Exception as e:
-                console.print(f"[red]Error al guardar preferencia: {e}[/red]")
-            continue
-            
-        # Comandos de configuración
-        elif entrada.lower() == "/config" or entrada.lower() == "/configuracion":
-            mostrar_opciones_configuracion()
-            continue
-            
-        elif entrada.lower().startswith("/config "):
-            param = entrada[8:].strip()
-            
-            # Restablecer valores predeterminados
-            if param == "reset":
-                confirmacion = input("¿Seguro que quieres restablecer toda la configuración? (s/n): ")
-                if confirmacion.lower() in ('s', 'si', 'sí'):
-                    default_config = {
-                        "usar_voz": True,
-                        "velocidad_voz": 145,
-                        "volumen_voz": 0.85,
-                        "indice_voz": 0,
-                        "max_recuerdos": 500,
-                        "max_resultados_web": 5,
-                        "cache_ttl": 86400,
-                        "modelo_llm": "deepseek-r1:14b"
-                    }
-                    memoria.guardar_configuracion(default_config)
-                    console.print("[green]Configuración restablecida a valores predeterminados[/green]")
-                continue
-                
-            # Exportar configuración
-            elif param == "export":
-                try:
-                    os.makedirs("config", exist_ok=True)
-                    config_path = os.path.join("config", f"jarvis_config_{datetime.now().strftime('%Y%m%d_%H%M%S')}.json")
-                    with open(config_path, 'w', encoding='utf-8') as f:
-                        json.dump(config, f, indent=2)
-                    console.print(f"[green]Configuración exportada a {config_path}[/green]")
-                except Exception as e:
-                    console.print(f"[red]Error al exportar configuración: {e}[/red]")
-                continue
-                
-            # Configuración específica por número
-            try:
-                opcion = int(param)
-                if opcion == 1:  # Cambiar estado de voz
-                    usar_voz = not usar_voz
-                    config["usar_voz"] = usar_voz
-                    memoria.guardar_configuracion(config)
-                    console.print(f"[green]Voz {'activada' if usar_voz else 'desactivada'}[/green]")
-                    if voz_disponible and usar_voz:
-                        voz.hablar(f"Voz {'activada' if usar_voz else 'desactivada'}")
-                elif opcion == 2:  # Velocidad de voz
-                    console.print("[yellow]Ingresa la nueva velocidad (100-200):[/yellow]")
-                    vel = input()
-                    if vel.isdigit() and 100 <= int(vel) <= 200:
-                        nueva_vel = int(vel)
-                        config["velocidad_voz"] = nueva_vel
-                        memoria.guardar_configuracion(config)
-                        if voz_disponible:
-                            voz.cambiar_velocidad(nueva_vel)
-                            if usar_voz:
-                                voz.hablar("Probando nueva velocidad de voz")
-                        console.print(f"[green]Velocidad cambiada a {nueva_vel}[/green]")
-                elif opcion == 3:  # Volumen
-                    console.print("[yellow]Ingresa el nuevo volumen (0.0-1.0):[/yellow]")
-                    vol = input()
-                    try:
-                        nuevo_vol = float(vol)
-                        if 0 <= nuevo_vol <= 1:
-                            config["volumen_voz"] = nuevo_vol
-                            memoria.guardar_configuracion(config)
-                            if voz_disponible:
-                                voz.cambiar_volumen(nuevo_vol)
-                                if usar_voz:
-                                    voz.hablar("Probando nuevo volumen de voz")
-                            console.print(f"[green]Volumen cambiado a {nuevo_vol}[/green]")
-                        else:
-                            console.print("[red]El volumen debe estar entre 0.0 y 1.0[/red]")
-                    except:
-                        console.print("[red]Valor no válido para volumen[/red]")
-                elif opcion == 4:  # Cambiar voz
-                    if voz_disponible:
-                        voces = voz.listar_voces(silent=False)
-                        if voces:
-                            console.print("[yellow]Ingresa el índice de la voz deseada:[/yellow]")
-                            idx = input()
-                            if idx.isdigit() and 0 <= int(idx) < len(voces):
-                                nuevo_idx = int(idx)
-                                config["indice_voz"] = nuevo_idx
-                                memoria.guardar_configuracion(config)
-                                voz.cambiar_voz(nuevo_idx)
-                                if usar_voz:
-                                    voz.hablar("Esta es la nueva voz seleccionada")
-                                console.print(f"[green]Voz cambiada a {voces[nuevo_idx]}[/green]")
-                            else:
-                                console.print("[red]Índice no válido[/red]")
-                    else:
-                        console.print("[yellow]El módulo de voz no está disponible[/yellow]")
-                elif opcion == 5:  # Límite de recuerdos
-                    console.print("[yellow]Ingresa el número máximo de recuerdos a mantener:[/yellow]")
-                    num = input()
-                    if num.isdigit() and int(num) > 0:
-                        max_rec = int(num)
-                        config["max_recuerdos"] = max_rec
-                        memoria.guardar_configuracion(config)
-                        console.print(f"[green]Límite de recuerdos cambiado a {max_rec}[/green]")
-                    else:
-                        console.print("[red]Valor no válido para límite de recuerdos[/red]")
-                elif opcion == 6:  # Resultados web
-                    console.print("[yellow]Ingresa el número de resultados por búsqueda (1-20):[/yellow]")
-                    num = input()
-                    if num.isdigit() and 1 <= int(num) <= 20:
-                        max_res = int(num)
-                        config["max_resultados_web"] = max_res
-                        memoria.guardar_configuracion(config)
-                        if web_disp and web_util:
-                            web_util.actualizar_preferencia("max_results", max_res)
-                        console.print(f"[green]Número de resultados cambiado a {max_res}[/green]")
-                    else:
-                        console.print("[red]Valor no válido para número de resultados[/red]")
-                elif opcion == 7:  # TTL de caché
-                    console.print("[yellow]Ingresa el TTL de caché en horas (1-72):[/yellow]")
-                    num = input()
-                    if num.isdigit() and 1 <= int(num) <= 72:
-                        ttl = int(num) * 3600  # Convertir a segundos
-                        config["cache_ttl"] = ttl
-                        memoria.guardar_configuracion(config)
-                        if web_disp and web_util:
-                            web_util.actualizar_preferencia("cache_ttl", ttl)
-                        console.print(f"[green]TTL de caché cambiado a {num} horas[/green]")
-                    else:
-                        console.print("[red]Valor no válido para TTL de caché[/red]")
-                elif opcion == 8:  # Modelo LLM
-                    from .asistente import listar_modelos_disponibles
-                    modelos = listar_modelos_disponibles()
-                    if modelos:
-                        console.print("[green]Modelos disponibles:[/green]")
-                        for i, modelo in enumerate(modelos):
-                            console.print(f"{i+1}. {modelo}")
-                        console.print("[yellow]Ingresa el número del modelo a usar:[/yellow]")
-                        idx = input()
-                        if idx.isdigit() and 1 <= int(idx) <= len(modelos):
-                            modelo_seleccionado = modelos[int(idx)-1]
-                            config["modelo_llm"] = modelo_seleccionado
-                            memoria.guardar_configuracion(config)
-                            console.print(f"[green]Modelo LLM cambiado a {modelo_seleccionado}[/green]")
-                            console.print("[yellow]Los cambios se aplicarán al reiniciar Jarvis[/yellow]")
-                        else:
-                            console.print("[red]Índice no válido[/red]")
-                    else:
-                        console.print("[yellow]No se pudieron obtener los modelos disponibles[/yellow]")
-                else:
-                    console.print("[red]Opción de configuración no válida[/red]")
-            except Exception as e:
-                console.print(f"[red]Error al modificar configuración: {e}[/red]")
-            continue
-            
-        # Comandos de estadísticas
-        elif entrada.lower() == "/stats" or entrada.lower() == "/estadisticas":
-            mostrar_estadisticas()
-            continue
-            
-        elif entrada.lower() == "/stats memoria" or entrada.lower() == "/estadisticas memoria":
-            try:
-                stats = memoria.obtener_estadisticas_memoria()
-                
-                # Crear una tabla con estadísticas
-                table = Table(title="📊 Estadísticas de Memoria")
-                table.add_column("Métrica", style="cyan")
-                table.add_column("Valor", style="yellow")
-                
-                table.add_row("Total de recuerdos", str(stats["total_recuerdos"]))
-                table.add_row("Espacio usado", f"{stats['tamano_total_kb']:.2f} KB")
-                table.add_row("Última interacción", stats["ultima_interaccion"])
-                
-                # Distribución temporal
-                dist = stats["distribucion_temporal"]
-                table.add_row("Recuerdos de hoy", str(dist["hoy"]))
-                table.add_row("Recuerdos de esta semana", str(dist["semana"]))
-                table.add_row("Recuerdos de este mes", str(dist["mes"]))
-                table.add_row("Recuerdos antiguos", str(dist["antiguos"]))
-                
-                console.print(table)
-            except Exception as e:
-                console.print(f"[red]Error al obtener estadísticas de memoria: {e}[/red]")
-            continue
-            
-        # Comandos de memoria
-        elif entrada.lower() == "/memoria":
-            # Mostrar últimos 5 recuerdos recientes
-            recuerdos = memoria._cargar_archivos_recuerdos()[:5]
-            contenido_recuerdos = ""
-
-            for r in recuerdos:
-                try:
-                    with open(os.path.join(memoria.memory_dir, r), "r", encoding="utf-8") as f:
-                        contenido = f.read().strip()
-                        contenido_recuerdos += f"[bold]{r}[/bold]:\n{contenido[:300]}...\n\n"
-                except Exception as e:
-                    contenido_recuerdos += f"[red]Error al leer {r}: {e}[/red]\n\n"
-
-            if contenido_recuerdos:
-                console.print(Panel(Markdown(contenido_recuerdos), title="[bold blue]Últimos Recuerdos[/bold blue]"))
-            else:
-                console.print("[yellow]No hay recuerdos recientes para mostrar.[/yellow]")
-            continue
-            
-        elif entrada.lower().startswith("/buscar-memoria "):
-            try:
-                texto = entrada[15:].strip()
-                if len(texto) < 3:
-                    console.print("[yellow]Por favor proporciona al menos 3 caracteres para buscar[/yellow]")
-                    continue
-                    
-                console.print(f"[cyan]🔍 Buscando '{texto}' en los recuerdos...[/cyan]")
-                resultados = memoria.buscar_recuerdos_por_texto(texto)
-                
-                if resultados:
-                    console.print(f"[green]✅ Se encontraron {len(resultados)} recuerdos:[/green]")
-                    
-                    # Crear una tabla con los resultados
-                    table = Table()
-                    table.add_column("ID", style="cyan")
-                    table.add_column("Fecha", style="yellow")
-                    table.add_column("Contexto", style="white")
-                    
-                    for resultado in resultados[:10]:  # Limitar a 10 resultados
-                        id = resultado["id"]
-                        fecha = resultado["fecha"]
-                        contexto = resultado["contexto"]
-                        
-                        # Resaltar el texto buscado
-                        contexto_resaltado = re.sub(
-                            f"({texto})", 
-                            lambda m: f"[bold red]{m.group(1)}[/bold red]", 
-                            contexto, 
-                            flags=re.IGNORECASE
-                        )
-                        
-                        table.add_row(id, fecha, contexto_resaltado)
-                    
-                    console.print(table)
-                    
-                    if len(resultados) > 10:
-                        console.print(f"[dim]... y {len(resultados) - 10} resultados más[/dim]")
-                        
-                    # Preguntar si se quiere ver un recuerdo completo
-                    console.print("[yellow]¿Deseas ver algún recuerdo completo? (Ingresa el ID o 'n')[/yellow]")
-                    seleccion = input()
-                    
-                    if seleccion.lower() != 'n':
-                        # Buscar el recuerdo por ID
-                        for r in resultados:
-                            if r["id"] == seleccion:
-                                console.print(Panel(Markdown(r["contenido_completo"]), title=f"Recuerdo {seleccion}"))
-                                break
-                        else:
-                            console.print("[yellow]ID no encontrado en los resultados[/yellow]")
-                else:
-                    console.print("[yellow]No se encontraron recuerdos que contengan este texto[/yellow]")
-            except Exception as e:
-                console.print(f"[red]Error al buscar en la memoria: {e}[/red]")
-            continue
-            
-        elif entrada.lower().startswith("/olvidar "):
-            try:
-                id_recuerdo = entrada[9:].strip()
-                if memoria.eliminar_recuerdo(id_recuerdo):
-                    console.print(f"[green]✅ Recuerdo {id_recuerdo} eliminado correctamente[/green]")
-                else:
-                    console.print(f"[yellow]No se pudo eliminar el recuerdo {id_recuerdo}[/yellow]")
-            except Exception as e:
-                console.print(f"[red]Error al eliminar recuerdo: {e}[/red]")
-            continue
-            
-        # Comandos de web
-        elif entrada.lower().startswith("/buscar ") and web_disp and web_util:
-            query = entrada[8:].strip()
-            if not query:
-                console.print("[yellow]Por favor proporciona una consulta de búsqueda[/yellow]")
-                continue
-                
-            console.print(f"[cyan]🔍 Buscando información privada sobre: {query}[/cyan]")
-            with Progress() as progress:
-                task = progress.add_task("[cyan]Realizando búsqueda...", total=1)
-                # Buscar información (usar caché si existe)
-                web_util.actualizar_preferencia("max_results", config.get("max_resultados_web", 5))
-                resultados = web_util.buscar_informacion(query)
-                progress.update(task, completed=1)
-            
-            if resultados:
-                # Crear una tabla con los resultados
-                table = Table(title=f"📄 Resultados de búsqueda para '{query}'")
-                table.add_column("#", style="cyan", justify="right")
-                table.add_column("Título", style="green")
-                table.add_column("Descripción", style="white")
-                table.add_column("URL", style="blue")
-                
-                for i, res in enumerate(resultados, 1):
-                    table.add_row(
-                        str(i),
-                        res['titulo'],
-                        res['snippet'][:100] + "..." if len(res['snippet']) > 100 else res['snippet'],
-                        res['url']
-                    )
-                
-                console.print(table)
-                
-                # Preguntar si quiere analizar algún resultado
-                console.print("[yellow]¿Deseas analizar alguno de estos resultados? (Ingresa el número o 'n')[/yellow]")
-                respuesta = input()
-                
-                if respuesta.isdigit() and 1 <= int(respuesta) <= len(resultados):
-                    indice = int(respuesta) - 1
-                    url_seleccionada = resultados[indice]['url'].strip()
-                    # Llamar al análisis de página
-                    console.print(f"[cyan]🔍 Analizando página web: {url_seleccionada}[/cyan]")
-                    try:
-                        # Asegurar que la URL tenga un esquema (http o https)
-                        url_seleccionada = limpiar_url(url_seleccionada)
-                            
-                        with Progress() as progress:
-                            task = progress.add_task("[cyan]Extrayendo contenido...", total=1)
-                            resultado_analisis = web_util.obtener_contenido_pagina(url_seleccionada)
-                            progress.update(task, completed=1)
-                            
-                        if resultado_analisis:
-                            mostrar_analisis_detallado(resultado_analisis)
-                            
-                            # Guardar análisis en la memoria
-                            memoria.guardar_recuerdo(f"Análisis web de {url_seleccionada}: {resultado_analisis['titulo']}")
-                            
-                            # Preguntar si quiere ver el contenido completo
-                            console.print("[yellow]¿Deseas ver el contenido completo? (s/n)[/yellow]")
-                            respuesta = input()
-                            if respuesta.lower() in ('s', 'si', 'sí'):
-                                console.print(Panel(Markdown(resultado_analisis['contenido'][:5000] + "..." if len(resultado_analisis['contenido']) > 5000 else resultado_analisis['contenido']), 
-                                             title=f"Contenido de {resultado_analisis['titulo']}"))
-                                
-                            # Explorar el resultado web
-                            console.print("[yellow]¿Deseas explorar los datos extraídos en detalle? (s/n)[/yellow]")
-                            respuesta = input()
-                            if respuesta.lower() in ('s', 'si', 'sí'):
-                                explorar_resultado_web(resultado_analisis)
-                                
-                            # Preguntar si se desea analizar con IA
-                            console.print("[yellow]¿Deseas analizar este contenido con IA? (s/n)[/yellow]")
-                            respuesta = input()
-                            if respuesta.lower() in ('s', 'si', 'sí'):
-                                # Construir prompt para análisis
-                                prompt = f"""
-                                Analiza el siguiente contenido de una página web:
-                                
-                                Título: {resultado_analisis['titulo']}
-                                
-                                Contenido:
-                                {resultado_analisis['contenido'][:5000]}
-                                
-                                Por favor proporciona:
-                                1. Un resumen de 3-4 párrafos del contenido principal
-                                2. Los puntos clave o ideas importantes
-                                3. Tu análisis sobre la fiabilidad y calidad de la información
-                                """
-                                
-                                console.print("[cyan]💭 Analizando contenido con IA...[/cyan]")
-                                with Progress() as progress:
-                                    task = progress.add_task("[cyan]Procesando análisis...", total=1)
-                                    respuesta = chat_engine.chat(prompt)
-                                    progress.update(task, completed=1)
-                                    
-                                console.print(Panel(Markdown(respuesta.response), title="[bold blue]Análisis de IA[/bold blue]"))
-                                if usar_voz and voz_disponible:
-                                    texto_voz = preparar_texto_para_voz(respuesta.response)
-                                    voz.hablar(texto_voz)
-                        else:
-                            console.print("[red]No se pudo obtener contenido de la página.[/red]")
-                    except Exception as e:
-                        console.print(f"[red]Error al analizar la página: {e}[/red]")
-            else:
-                console.print("[yellow]No se encontraron resultados[/yellow]")
-            continue
-            
-        elif entrada.lower().startswith("/analizar ") and web_disp and web_util:
-            url_raw = entrada[10:]
-            url = limpiar_url(url_raw)
-
-            console.print(f"[cyan]🔍 Analizando página web: {url}[/cyan]")
-            try:
-                if not es_url_valida(url):
-                    raise ValueError("La URL no es válida.")
-
-                with Progress() as progress:
-                    task = progress.add_task("[cyan]Analizando contenido web...", total=1)
-                    resultado = web_util.obtener_contenido_pagina(url)
-                    progress.update(task, completed=1)
-                
-                if resultado:
-                    mostrar_analisis_detallado(resultado)
-                    memoria.guardar_recuerdo(f"Análisis web de {url}: {resultado['titulo']}")
-
-                    console.print("[yellow]¿Deseas ver el contenido completo? (s/n)[/yellow]")
-                    if input().strip().lower() in ('s', 'si', 'sí'):
-                        contenido = resultado['contenido'][:5000]
-                        console.print(Panel(Markdown(contenido + "..." if len(contenido) == 5000 else contenido),
-                                            title=f"Contenido de {resultado['titulo']}"))
-
-                    console.print("[yellow]¿Deseas explorar los datos extraídos en detalle? (s/n)[/yellow]")
-                    if input().strip().lower() in ('s', 'si', 'sí'):
-                        explorar_resultado_web(resultado)
-
-                    console.print("[yellow]¿Deseas analizar este contenido con IA? (s/n)[/yellow]")
-                    if input().strip().lower() in ('s', 'si', 'sí'):
-                        prompt = f"""
-                        Analiza el siguiente contenido de una página web:
-                        
-                        Título: {resultado['titulo']}
-                        
-                        Contenido:
-                        {resultado['contenido'][:5000]}
-                        
-                        Por favor proporciona:
-                        1. Un resumen de 3-4 párrafos del contenido principal
-                        2. Los puntos clave o ideas importantes
-                        3. Tu análisis sobre la fiabilidad y calidad de la información
-                        """
-                        console.print("[cyan]💭 Analizando contenido con IA...[/cyan]")
-                        
-                        with Progress() as progress:
-                            task = progress.add_task("[cyan]Procesando análisis...", total=1)
-                            respuesta = chat_engine.chat(prompt)
-                            progress.update(task, completed=1)
-                            
-                        console.print(Panel(Markdown(respuesta.response), title="[bold blue]Análisis de IA[/bold blue]"))
-                        if usar_voz and voz_disponible:
-                            texto_voz = preparar_texto_para_voz(respuesta.response)
-                            voz.hablar(texto_voz)
-                else:
-                    console.print("[red]No se pudo obtener contenido de la página.[/red]")
-            except Exception as e:
-                console.print(f"[red]Error al analizar la página: {e}[/red]")
-            continue
-            
-        elif entrada.lower() == "/menu":
-            console.print(Panel.fit(
-                "[bold blue]MENÚ PRINCIPAL DE JARVIS[/bold blue]\n\n"
-                "1. [bold]💬 Conversación[/bold] - Habla con tu asistente personal\n"
-                "2. [bold]🔍 Búsqueda Web[/bold] - Busca información en línea\n"
-                "3. [bold]📝 Gestión de Recuerdos[/bold] - Administra la memoria del asistente\n"
-                "4. [bold]⚙️ Configuración[/bold] - Ajusta la configuración del sistema\n"
-                "5. [bold]📊 Estadísticas[/bold] - Ver estadísticas del sistema\n"
-                "6. [bold]❓ Ayuda[/bold] - Consulta la documentación y comandos\n"
-                "7. [bold]❌ Salir[/bold] - Terminar programa\n\n"
-                "[dim]Ingresa el número de la opción o escribe un comando directo[/dim]",
-                title="🤖 Jarvis - Asistente Personal",
-                border_style="blue"
-            ))
-            
-            # Obtener entrada del usuario
-            try:
-                seleccion = input("\nSelecciona una opción (1-7): ")
-                
-                if seleccion == "1":  # Conversación
-                    console.print("[cyan]Iniciando conversación...[/cyan]")
-                    # No hace nada porque ya estás en la conversación
-                    continue
-                    
-                elif seleccion == "2":  # Búsqueda Web
-                    console.print(Panel("Comandos de búsqueda disponibles:\n\n"
-                               "- [yellow]/buscar[/yellow] consulta - Búsqueda básica\n"
-                               "- [yellow]/buscar+[/yellow] consulta - Búsqueda con análisis automático\n"
-                               "- [yellow]/buscar-opciones[/yellow] - Búsqueda con opciones avanzadas\n"
-                               "- [yellow]/analizar[/yellow] url - Analiza una página web específica",
-                               title="🔍 Opciones de búsqueda"))
-                    continue
-                    
-                elif seleccion == "3":  # Gestión de Recuerdos
-                    console.print(Panel("Gestión de memoria:\n\n"
-                               "- [yellow]/memoria[/yellow] - Ver recuerdos recientes\n"
-                               "- [yellow]/guardar[/yellow] nombre=valor - Guardar preferencia\n"
-                               "- [yellow]/buscar-memoria[/yellow] texto - Buscar en recuerdos\n"
-                               "- [yellow]/olvidar[/yellow] id - Eliminar recuerdo específico",
-                               title="📝 Memoria"))
-                    continue
-                    
-                elif seleccion == "4":  # Configuración
-                    mostrar_opciones_configuracion()
-                    continue
-                    
-                elif seleccion == "5":  # Estadísticas
-                    mostrar_estadisticas()
-                    continue
-                    
-                elif seleccion == "6":  # Ayuda
-                    mostrar_ayuda("general")
-                    continue
-                    
-                elif seleccion == "7":  # Salir
-                    confirmacion = input("¿Realmente deseas salir? (s/n): ")
-                    if confirmacion.lower() in ("s", "si", "sí", "y", "yes"):
-                        mostrar_despedida()
-                        return
-                    else:
-                        console.print("[green]Operación cancelada, continuando...[/green]")
-                    continue
-                
-                else:
-                    console.print("[yellow]Opción no válida. Intenta de nuevo.[/yellow]")
-                    continue
-                    
-            except KeyboardInterrupt:
-                console.print("\n[yellow]Operación interrumpida por el usuario.[/yellow]")
-            except Exception as e:
-                console.print(f"[red]Error al procesar selección: {e}[/red]")
-            continue
-                    
-        # Si no es un comando especial, obtener recuerdos relevantes
+    # Inicializar memoria si no se proporciona
+    if not indice:
         try:
-            with Progress(transient=True) as progress:
-                task = progress.add_task("[cyan]Recuperando recuerdos...", total=1)
-                contexto_recuerdos = memoria.obtener_contexto_relevante(entrada)
-                progress.update(task, completed=1)
+            from chatbot.memoria import MemoryManager
+            memoria = MemoryManager()
+            indice = memoria.index
+            logger.info("Memoria inicializada desde el módulo")
         except Exception as e:
-            console.print(f"[bold red]Error al recuperar recuerdos: {e}[/bold red]")
-            contexto_recuerdos = ""
-
-        # Crear mensaje para el modelo
-        if contexto_recuerdos:
-            console.print("[dim cyan]🧠 Recordando información relevante...[/dim cyan]")
-            mensaje = f"""
-            El usuario pregunta: "{entrada}"
-            
-            Recuerdos relevantes:
-            {contexto_recuerdos}
-            
-            Por favor responde usando la información de estos recuerdos.
-            """
-        else:
-            mensaje = entrada
-            
-        # Enviar mensaje y obtener respuesta
+            logger.warning(f"No se pudo inicializar memoria: {e}")
+            indice = None
+    
+    # Verificar inicialización de sistema de voz
+    try:
+        from chatbot.voz import Voz
+        voz = Voz()
+        voz_disponible = True
+        logger.info("Módulo de voz disponible e importado")
+    except ImportError:
+        voz_disponible = False
+        voz = None
+        logger.warning("Módulo de voz no disponible")
+    
+    # Verificar inicialización de web
+    if not web and web_disponible:
         try:
-            with Progress() as progress:
-                task = progress.add_task("[cyan]Generando respuesta...", total=1)
-                respuesta = chat_engine.chat(mensaje)
-                progress.update(task, completed=1)
+            from chatbot.web import MotorWebPrivado
+            web = MotorWebPrivado()
+            logger.info("Módulo web disponible e inicializado")
+        except ImportError:
+            web = None
+            logger.warning("Módulo web no disponible")
+    
+    # Inicializar TTS
+    if voz_disponible:
+        try:
+            voz.inicializar()
+        except Exception as e:
+            logger.error(f"Error al inicializar voz: {e}")
+            voz_disponible = False
+    
+    # Ejecutar bucle principal
+    while True:
+        try:
+            # Obtener entrada del usuario
+            entrada = input("\n[Tú]: ")
+            
+            # Verificar comando de salida
+            if entrada.lower() in ["salir", "exit", "quit", "q"]:
+                console.print("[bold yellow]¡Hasta luego![/bold yellow]")
+                break
+            
+            # Determinar si debemos realizar búsqueda web
+            realizar_busqueda_web = False
+            if web_disponible and entrada.lower().startswith(("busca ", "buscar ", "search ")):
+                realizar_busqueda_web = True
+                consulta = entrada.split(" ", 1)[1]
                 
-            respuesta_final = respuesta.response
+                # Realizar búsqueda
+                with console.status("[bold green]Buscando en la web...[/bold green]"):
+                    try:
+                        resultados = web.realizar_busqueda(consulta)
+                        contexto_web = "\n".join(resultados[:3])
+                    except Exception as e:
+                        logger.error(f"Error al buscar en web: {e}")
+                        contexto_web = f"Error al buscar información: {e}"
+                
+                # Mostrar resultados
+                console.print(Panel(
+                    f"[italic]Resultados de búsqueda para:[/italic] [bold]{consulta}[/bold]\n\n" + 
+                    contexto_web,
+                    title="Resultados Web",
+                    border_style="blue"
+                ))
+            
+            # Generar respuesta 
+            with console.status("[bold green]Pensando...[/bold green]"):
+                # Determinar qué motor usar para la respuesta
+                if chat_engine:
+                    # Si tenemos chat_engine, usarlo directamente
+                    if hasattr(chat_engine, 'chat'):
+                        respuesta = chat_engine.chat(entrada)
+                        respuesta_final = respuesta.text if hasattr(respuesta, 'text') else str(respuesta)
+                    else:
+                        # Fallback si chat_engine no tiene método chat
+                        respuesta_final = "Error: El motor de chat no implementa el método 'chat'"
+                elif indice:
+                    # Usar índice si está disponible
+                    try:
+                        engine = indice.as_chat_engine(chat_mode="condense_question", verbose=True)
+                        respuesta = engine.chat(entrada)
+                        respuesta_final = respuesta.response
+                    except Exception as e:
+                        logger.error(f"Error al usar índice como chat engine: {e}")
+                        respuesta_final = f"Error al procesar la respuesta: {e}"
+                else:
+                    # Fallback final si no hay motor de chat ni índice
+                    try:
+                        from chatbot.asistente import obtener_llm
+                        llm_fallback = obtener_llm()
+                        respuesta_final = llm_fallback.complete(entrada).text
+                    except Exception as e:
+                        respuesta_final = f"No puedo generar una respuesta: {e}"
             
             # Limpiar respuesta si tiene formato thinking
             if "<think>" in respuesta_final and "</think>" in respuesta_final:
@@ -1235,14 +641,18 @@ def ejecutar_chat(indice, llm, componentes=None) -> None:
             respuesta_md = Markdown(respuesta_final)
             console.print(Panel(respuesta_md, title="[bold blue]Jarvis[/bold blue]"))
             
-            # Si la voz está activada, hablar la respuesta
-            if usar_voz and voz_disponible:
-                texto_voz = preparar_texto_para_voz(respuesta_final)
-                voz.hablar(texto_voz)
-                
-            # Guardar interacción como recuerdo
-            memoria.guardar_recuerdo(f"Usuario: {entrada}\nIA: {respuesta_final}")
+            # Reproducir respuesta con TTS si está disponible
+            if voz_disponible:
+                try:
+                    # Limpiar el texto para TTS
+                    texto_limpio = respuesta_final
+                    # Quitar marcadores markdown comunes
+                    for caracter in ["*", "_", "#", "`", "[", "]", "(", ")"]:
+                        texto_limpio = texto_limpio.replace(caracter, "")
+                    voz.decir(texto_limpio)
+                except Exception as e:
+                    logger.error(f"Error al reproducir voz: {e}")
             
         except Exception as e:
-            console.print(f"[bold red]Error al obtener respuesta: {e}[/bold red]")
-            memoria.guardar_recuerdo(f"Usuario: {entrada}\nIA: Error de respuesta: {str(e)}")
+            logger.error(f"Error en la ejecución: {e}")
+            console.print(f"[bold red]Error:[/bold red] {e}")

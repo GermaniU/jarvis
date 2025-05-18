@@ -1,0 +1,32 @@
+[
+  {
+    "titulo": "fotiecodes/jarvis - Ollama",
+    "snippet": "I am talking about my very own Jarvis, talks like jarvis, response like jarvis, feels like jarvis in the most accurate way possible. * This project was inspired by \"J.A.R.V.I.S\" from the Marvel movie series. Project repo: Link. Disclaimer: Jarvis can make mistakes. Consider checking important information.",
+    "url": "ollama.com/fotiecodes/jarvis",
+    "timestamp": "2025-05-17T20:20:41.898059"
+  },
+  {
+    "titulo": "clevaway/J.A.R.V.I.S: Jarvis from the marvel universe - GitHub",
+    "snippet": "This will install the model jarvis model locally. 3. From here you can already chat with jarvis from the command line by running the same command ollama run fotiecodes/jarvis or ollama run fotiecodes/jarvis:latest to run the lastest stable release.. II. After installing the model locally and started the ollama sever and can confirm it is working properly, clone this repositry and run the main ...",
+    "url": "github.com/clevaway/J.A.R.V.I.S",
+    "timestamp": "2025-05-17T20:20:41.898059"
+  },
+  {
+    "titulo": "GitHub - ColeHacker381/J.A.R.V.I.S: The full J.A.R.V.I.S. operating ...",
+    "snippet": "The full J.A.R.V.I.S. operating system, beta testing Mark 5. The full suystem is designed and tested to be ran on the WINDOWS 11 OS. JARVIS is one of the first fully integrated systems that can be spoken to and run locally or through an API, right before speaking it's response back to you and running the command given to it.",
+    "url": "github.com/ColeHacker381/J.A.R.V.I.S",
+    "timestamp": "2025-05-17T20:20:41.898059"
+  },
+  {
+    "titulo": "Build your own voice assistant and run it locally: Whisper + Ollama ...",
+    "snippet": "If Ollama is new to you, I recommend checking out my previous article on offline RAG: \"Build Your Own RAG and Run It Locally: Langchain + Ollama + Streamlit\". Basically, you just need to ...",
+    "url": "medium.com/@vndee.huynh/build-your-own-voice-assistant-and-run-it-locally-whisper-ollama-bark-c80e6f815cba",
+    "timestamp": "2025-05-17T20:20:41.898059"
+  },
+  {
+    "titulo": "MonkeyManLuffy/jarvis - ollama.com",
+    "snippet": "Build me an AI that will function exactly like jarvis from Iron man",
+    "url": "www.ollama.com/MonkeyManLuffy/jarvis",
+    "timestamp": "2025-05-17T20:20:41.898059"
+  }
+]
