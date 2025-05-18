@@ -1,35 +1,12 @@
-# Entorno virtual
+# Entornos virtuales
 .venv/
 venv/
-ENV/
-
-# Archivos de Python
+env/
 __pycache__/
 *.py[cod]
 *$py.class
 *.so
 .Python
-build/
-develop-eggs/
-dist/
-downloads/
-eggs/
-.eggs/
-lib/
-lib64/
-parts/
-sdist/
-var/
-wheels/
-*.egg-info/
-.installed.cfg
-*.egg
-
-# Archivos de registro
-*.log
-
-# Archivos de base de datos
-*.db
 *.sqlite3
 
 # Archivos de configuración local
@@ -49,4 +26,31 @@ Thumbs.db
 
 # Archivos de memoria del usuario y cache de IA
 memory/
+memory/**/*
+!memory/.gitkeep
+
+# Embeddings y almacenamiento vectorial
 embeddings/
+embeddings/**/*
+!embeddings/.gitkeep
+
+# Caché web y archivos temporales
+**/web_cache/
+**/web_cache/**/*
+*.json
+memory/web_cache/
+
+# Archivos de logs
+*.log
+jarvis_*.log
+jarvis_web.log
+
+# Archivos específicos para ignorar
+**/doctore.json
+**/index_store.json
+**/default_vector_store.json
+**/search_history.jsonl
+**/9ff979*.json
+
+# Mantener estructura de directorios pero no su contenido
+!.gitkeep
