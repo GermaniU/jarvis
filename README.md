@@ -64,7 +64,8 @@ JARVIS es un asistente virtual de código abierto diseñado para interactuar con
 
 4. Instale las dependencias:
    ```bash
-   python recreate_env.py
+  pip install -r requirements.txt
+
    ```
    O manualmente:
    ```bash
