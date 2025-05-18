@@ -324,17 +324,17 @@ class Jarvis:
             if hasattr(self.chat_engine, 'chat'):
                 # Formatear el prompt con instrucciones más claras y específicas
                 sistema_prompt = """
-                Eres JARVIS, un asistente con memoria persistente. Revisa cuidadosamente la siguiente información de tu memoria y úsala para responder la consulta.
-                
-                SI en la memoria hay información personal sobre el usuario (como nombre, preferencias, historia, datos, etc.) DEBES utilizarla activamente en tu respuesta y demostrar que recuerdas estos detalles.
-                
-                MEMORIA:
-                {}
-                
-                Ahora, responde a esta consulta recordando la información relevante anterior:
-                {}
-                """
-    
+                        Eres JARVIS, un asistente personal con memoria persistente. La siguiente información proviene de tu memoria y DEBES utilizarla para personalizar tu respuesta:
+
+                        MEMORIA:
+                        {}
+
+                        INSTRUCCIÓN: Si encuentras "mi nombre es X" o similar en la memoria, SIEMPRE dirígete al usuario como X.
+                        Si hay alguna preferencia, dato personal o información importante en la memoria, DEMÚESTRALO claramente en tu respuesta utilizando esos datos.
+
+                        Consulta del usuario: {}
+                        """
+
                 # Si hay contexto, formatearlo adecuadamente
                 if contexto:
                     prompt_completo = sistema_prompt.format(contexto, mensaje)
@@ -360,6 +360,11 @@ class Jarvis:
             if self.plugins and hasattr(self.plugins, "modify_response"):
                 respuesta = self.plugins.modify_response(mensaje, respuesta, user_id)
                 
+            info_personal = self._obtener_info_personal()
+            if info_personal:
+                info_formateada = "\n".join([f"- {k.capitalize()}: {v}" for k, v in info_personal.items()])
+                contexto = f"INFORMACIÓN PERSONAL DEL USUARIO:\n{info_formateada}\n\n{contexto}"
+
             return respuesta
             
         except Exception as e:
@@ -367,52 +372,71 @@ class Jarvis:
             return f"Lo siento, ha ocurrido un error al procesar tu mensaje: {e}"
     
     def _obtener_contexto_memoria(self, mensaje: str) -> str:
-        """
-        Obtiene contexto relevante de la memoria para una consulta,
-        asegurándose de incluir siempre las últimas interacciones
-    
-        Args:
-            mensaje: Consulta del usuario
+            """
+            Obtiene contexto relevante de la memoria para una consulta,
+            asegurándose de incluir siempre información personal
+            """
+            if not self.memoria:
+             return ""
             
-        Returns:
-            str: Contexto formateado
-        """
-        if not self.memoria:
-            return ""
-        
-        try:
-            # Usar el mejor método disponible según el tipo de memoria
-            if hasattr(self.memoria, 'obtener_contexto_combinado'):
-                # Usar capacidades avanzadas de memoria híbrida
-                # Aumentar top_k para tener más contexto
-                resultados = self.memoria.obtener_contexto_combinado(mensaje, top_k=8)
+            try:
+                # Primero, intentar obtener información personal del usuario
+                info_personal = self._obtener_info_personal()
+                contexto_personal = ""
                 
-                # Asegurarse de que se incluyan al menos los 3 últimos recuerdos
-                ultimos_recuerdos = []
-                if hasattr(self.memoria, 'obtener_ultimos_recuerdos'):
-                    ultimos_recuerdos = self.memoria.obtener_ultimos_recuerdos(3)
-                    
-                    # Añadir los últimos recuerdos si no están ya incluidos
-                    ids_incluidos = {r.get("id", "") for r in resultados}
-                    for rec in ultimos_recuerdos:
-                        if rec.get("id", "") not in ids_incluidos:
-                            # Dar alta relevancia a los últimos recuerdos
-                            rec["score_final"] = 0.9
-                            resultados.append(rec)
+                if info_personal:
+                    contexto_personal = "INFORMACIÓN PERSONAL DEL USUARIO:\n"
+                    for clave, valor in info_personal.items():
+                        contexto_personal += f"- {clave.capitalize()}: {valor}\n"
+                    contexto_personal += "\n"
                 
-                return self._formatear_resultados_memoria(resultados)
-            elif hasattr(self.memoria, 'obtener_contexto_relevante'):
-                # Usar método estándar
-                return self.memoria.obtener_contexto_relevante(mensaje)
-            else:
-                # Fallback a métodos básicos si existen
-                if hasattr(self.memoria, 'buscar_recuerdos'):
-                    recuerdos = self.memoria.buscar_recuerdos(mensaje, limite=3)
-                    return "\n\n".join(recuerdos) if recuerdos else ""
+                # Luego obtener contexto relevante según capacidades disponibles
+                contexto_general = ""
+                
+                # PRIMERA ESTRATEGIA: contexto combinado (híbrido)
+                if hasattr(self.memoria, 'obtener_contexto_combinado'):
+                    try:
+                        resultados = self.memoria.obtener_contexto_combinado(mensaje, top_k=5)
+                        if resultados:
+                            contexto_general = self._formatear_resultados_memoria(resultados)
+                    except Exception as e:
+                        logger.error(f"Error al obtener contexto combinado: {e}")
+                        # Continuar con otras estrategias
+                
+                # SEGUNDA ESTRATEGIA: contexto relevante estándar
+                if not contexto_general and hasattr(self.memoria, 'obtener_contexto_relevante'):
+                    try:
+                        contexto_general = self.memoria.obtener_contexto_relevante(mensaje)
+                    except Exception as e:
+                        logger.error(f"Error al obtener contexto relevante: {e}")
+                
+                # TERCERA ESTRATEGIA: búsqueda simple
+                if not contexto_general and hasattr(self.memoria, 'buscar_recuerdos'):
+                    try:
+                        recuerdos = self.memoria.buscar_recuerdos(mensaje, limite=3)
+                        contexto_general = "\n\n".join(recuerdos) if recuerdos else ""
+                    except Exception as e:
+                        logger.error(f"Error al buscar recuerdos: {e}")
+                
+                # ESTRATEGIA FINAL: últimos recuerdos
+                if not contexto_general:
+                    try:
+                        if hasattr(self.memoria, 'obtener_ultimos_recuerdos'):
+                            ultimos = self.memoria.obtener_ultimos_recuerdos(3)
+                            if ultimos:
+                                contexto_general = self._formatear_resultados_memoria(ultimos)
+                        elif hasattr(self.memoria, 'obtener_recuerdos_recientes'):
+                            recientes = self.memoria.obtener_recuerdos_recientes(limite=3)
+                            if recientes:
+                                contexto_general = self._formatear_resultados_memoria(recientes)
+                    except Exception as e:
+                        logger.error(f"Error al obtener últimos recuerdos: {e}")
+                
+                # Combinar ambos contextos, priorizando información personal
+                return contexto_personal + contexto_general
+            except Exception as e:
+                logger.error(f"Error al obtener contexto de memoria: {e}")
                 return ""
-        except Exception as e:
-            logger.error(f"Error al obtener contexto de memoria: {e}")
-            return ""
     
     def _limpiar_respuesta(self, respuesta: str) -> str:
         """
@@ -588,6 +612,8 @@ class Jarvis:
             "he guardado", "recordaré", "anotado", "registrado",
             "tu información", "tus datos", "tu preferencia"
         ]
+
+        
         
         # Verificar primero en la respuesta 
         respuesta_lower = respuesta.lower()
@@ -605,17 +631,19 @@ class Jarvis:
             return True
             
         # Verificar si la respuesta contiene datos personalizados como nombres, fechas, etc.
-        patrones_info = [
-            r"(?:tu nombre es|te llamas) [A-Z][a-z]+",
-            r"(?:tu (?:teléfono|telefono|móvil|celular|número|numero)(?: es)?) [0-9+() -]{7,}",
-            r"(?:tu (?:dirección|direccion|email|correo)(?: es)?) \S+@\S+",
-            r"(?:tu (?:cumpleaños|cumpleanos|fecha)(?: es)?) \d{1,2}[/-]\d{1,2}"
+        patrones_info_personal = [
+            r"(?:mi nombre es|me llamo) ([A-Za-z]+)",
+            r"(?:tengo) (\d+)(?: años)?",
+            r"(?:mi (?:teléfono|telefono|móvil|celular|número|numero)(?: es)?) ([0-9+() -]{7,})",
+            r"(?:mi (?:dirección|direccion|email|correo)(?: es)?) (\S+@\S+)",
+            r"(?:my name is|i am called) ([A-Za-z]+)",
+            r"(?:i am) (\d+)(?: years old)?",
         ]
-        
-        for patron in patrones_info:
-            if re.search(patron, respuesta, re.IGNORECASE):
+
+        for patron in patrones_info_personal:
+            if re.search(patron, mensaje, re.IGNORECASE):
                 return True
-        
+                
         return False
 
     def _formatear_resultados_memoria(self, resultados: List[Dict]) -> str:
@@ -654,6 +682,123 @@ class Jarvis:
             contexto.append(f"{relevancia}[Recuerdo del {fecha}{marca}{fuente}]\n{texto}\n")
         
         return "\n".join(contexto)
+    def load_plugins(self) -> int:
+        """
+        Carga todos los plugins disponibles y devuelve el número de plugins cargados
+        
+        Returns:
+            int: Número de plugins cargados con éxito
+        """
+        plugins = self.load_all_plugins()
+        return len(plugins)
+
+    def shutdown(self):
+        """
+        Cierra ordenadamente todos los plugins activos
+        
+        Returns:
+            bool: True si se cerraron correctamente
+        """
+        logger.info("Cerrando plugins...")
+        
+        # Lista para seguir plugins con errores
+        plugins_con_error = []
+        
+        # Intentar cerrar cada plugin
+        for name, plugin in self.plugins.items():
+            if hasattr(plugin, 'shutdown'):
+                try:
+                    plugin.shutdown()
+                    logger.debug(f"Plugin {name} cerrado correctamente")
+                except Exception as e:
+                    logger.error(f"Error al cerrar plugin {name}: {e}")
+                    plugins_con_error.append(name)
+        
+        if plugins_con_error:
+            logger.warning(f"No se pudieron cerrar correctamente los plugins: {', '.join(plugins_con_error)}")
+        else:
+            logger.info("Todos los plugins cerrados correctamente")
+        
+        return len(plugins_con_error) == 0
+
+    def _guardar_info_personal(self, mensaje: str) -> None:
+            """
+            Detecta y guarda información personal del usuario
+            
+            Args:
+                mensaje: Mensaje del usuario
+            """
+            # Patrones para extraer información personal
+            patrones = {
+                "nombre": r"(?:mi nombre es|me llamo) ([A-Za-z]+)",
+                "edad": r"(?:tengo) (\d+)(?: años)?",
+                "correo": r"(?:mi (?:email|correo)(?: es)?) (\S+@\S+)",
+            }
+            
+            info_personal = {}
+            for tipo, patron in patrones.items():
+                match = re.search(patron, mensaje, re.IGNORECASE)
+                if match:
+                    info_personal[tipo] = match.group(1)
+            
+            if info_personal:
+                # Guardar en memoria si se encontró información personal
+                configuracion = self.memoria.cargar_configuracion()
+                if "info_personal" not in configuracion:
+                    configuracion["info_personal"] = {}
+                
+                # Actualizar con la nueva información
+                configuracion["info_personal"].update(info_personal)
+                self.memoria.guardar_configuracion(configuracion)
+                
+                # Marcar explícitamente como información importante
+                texto = f"Usuario - Información Personal: {', '.join([f'{k}: {v}' for k, v in info_personal.items()])}"
+                self.memoria.guardar_recuerdo(texto, es_importante=True)
+                
+    def _obtener_info_personal(self) -> Dict[str, str]:
+        """
+        Recupera información personal del usuario guardada en configuración
+        
+        Returns:
+            Dict[str, str]: Información personal (nombre, edad, etc.)
+        """
+        if not self.memoria:
+            return {}
+            
+        try:
+            # Obtener información de la configuración
+            config = self.memoria.cargar_configuracion()
+            info_personal = config.get("info_personal", {})
+            
+            # También buscar en recuerdos marcados como importantes
+            if hasattr(self.memoria, "_cargar_archivos_recuerdos"):
+                archivos = self.memoria._cargar_archivos_recuerdos()
+                importantes = [a for a in archivos if "_important" in a]
+                
+                for archivo in importantes[:10]:  # Revisar los 10 importantes más recientes
+                    try:
+                        contenido = self.memoria.leer_recuerdo(archivo)
+                        
+                        # Buscar patrones de datos personales en el texto
+                        patrones = {
+                            "nombre": r"(?:mi nombre es|me llamo) ([A-Za-zÁáÉéÍíÓóÚúÑñ]+)",
+                            "edad": r"(?:tengo) (\d+)(?: años)?",
+                            "correo": r"(?:mi (?:email|correo)(?: es)?) (\S+@\S+)"
+                        }
+                        
+                        for tipo, patron in patrones.items():
+                            match = re.search(patron, contenido, re.IGNORECASE)
+                            if match and match.group(1):
+                                info_personal[tipo] = match.group(1)
+                    except Exception as e:
+                        logger.error(f"Error al procesar recuerdo importante: {e}")
+            
+            return info_personal
+        except Exception as e:
+            logger.error(f"Error al obtener información personal: {e}")
+            return {}
+
+                
 
 def parse_arguments():
     """Procesa argumentos de línea de comandos"""
@@ -702,41 +847,3 @@ if __name__ == "__main__":
     main()
 
 # Añade este método a la clase PluginManager en plugins/__init__.py
-def load_plugins(self) -> int:
-    """
-    Carga todos los plugins disponibles y devuelve el número de plugins cargados
-    
-    Returns:
-        int: Número de plugins cargados con éxito
-    """
-    plugins = self.load_all_plugins()
-    return len(plugins)
-
-def shutdown(self):
-    """
-    Cierra ordenadamente todos los plugins activos
-    
-    Returns:
-        bool: True si se cerraron correctamente
-    """
-    logger.info("Cerrando plugins...")
-    
-    # Lista para seguir plugins con errores
-    plugins_con_error = []
-    
-    # Intentar cerrar cada plugin
-    for name, plugin in self.plugins.items():
-        if hasattr(plugin, 'shutdown'):
-            try:
-                plugin.shutdown()
-                logger.debug(f"Plugin {name} cerrado correctamente")
-            except Exception as e:
-                logger.error(f"Error al cerrar plugin {name}: {e}")
-                plugins_con_error.append(name)
-    
-    if plugins_con_error:
-        logger.warning(f"No se pudieron cerrar correctamente los plugins: {', '.join(plugins_con_error)}")
-    else:
-        logger.info("Todos los plugins cerrados correctamente")
-    
-    return len(plugins_con_error) == 0

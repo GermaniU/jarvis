@@ -422,13 +422,39 @@ class MotorWebPrivado:
             contenido = contenido.strip()
 
             # Extraer tablas si hay pocas
-            tablas_html = soup.find_all('table')
-            tablas = self._extraer_tablas(soup) if len(tablas_html) <= 5 else []
-            
+            tablas = []
+            try:
+                tablas_html = soup.find_all('table')
+                tablas = self._extraer_tablas(soup) if len(tablas_html) <= 5 else []
+            except Exception as e:
+                logger.error(f"Error al extraer tablas: {e}")
+                
             # Extraer otros datos
-            datos_comerciales = self._extraer_datos_comerciales(soup, contenido)
-            datos_contacto = self._extraer_datos_contacto(soup, contenido)
-            
+            datos_comerciales = {}
+            datos_contacto = {}
+            tipo_contenido = "pagina"
+            imagenes = []
+
+            try:
+                datos_comerciales = self._extraer_datos_comerciales(soup, contenido)
+            except Exception as e:
+                logger.error(f"Error al extraer datos comerciales: {e}")
+                
+            try:
+                datos_contacto = self._extraer_datos_contacto(soup, contenido)
+            except Exception as e:
+                logger.error(f"Error al extraer datos de contacto: {e}")
+                
+            try:
+                tipo_contenido = self._detectar_tipo_contenido(url, soup)
+            except Exception as e:
+                logger.error(f"Error al detectar tipo de contenido: {e}")
+                
+            try:
+                imagenes = self._extraer_imagenes(soup, url)
+            except Exception as e:
+                logger.error(f"Error al extraer imágenes: {e}")
+
             # Crear resultado con metadatos enriquecidos
             resultado = {
                 "titulo": titulo,
@@ -437,11 +463,11 @@ class MotorWebPrivado:
                 "url": url,
                 "timestamp": datetime.now().isoformat(),
                 "longitud": len(contenido),
-                "tipo_contenido": self._detectar_tipo_contenido(url, soup),
+                "tipo_contenido": tipo_contenido,
                 "datos_comerciales": datos_comerciales,
                 "datos_contacto": datos_contacto,
                 "tablas": tablas,
-                "imagenes": self._extraer_imagenes(soup, url)
+                "imagenes": imagenes
             }
 
             # Guardar en caché
@@ -463,73 +489,267 @@ class MotorWebPrivado:
             logger.error(f"Error al obtener contenido de {url}: {e}")
             return {"titulo": "Error de extracción", "contenido": f"No se pudo obtener el contenido: {str(e)}", "url": url}
 
-    def _extraer_datos_contacto(self, soup: BeautifulSoup, contenido_texto: str) -> Dict[str, Any]:
+    def _extraer_tablas(self, soup: BeautifulSoup) -> List[Dict[str, Any]]:
         """
-        Extrae emails, teléfonos, direcciones y otros datos de contacto
+        Extrae tablas del HTML y las convierte a formato estructurado
+    
+        Args:
+            soup: Objeto BeautifulSoup con el HTML parseado
         
+        Returns:
+            Lista de tablas extraídas en formato estructurado
+        """
+        tablas = []
+        for idx, tabla_html in enumerate(soup.find_all('table')):
+            try:
+                # Extraer encabezados
+                headers = []
+                head_row = tabla_html.find('thead')
+                if head_row:
+                    for th in head_row.find_all(['th']):
+                        headers.append(th.get_text().strip())
+                else:
+                    # Intentar con la primera fila
+                    first_row = tabla_html.find('tr')
+                    if first_row:
+                        for th in first_row.find_all(['th', 'td']):
+                            headers.append(th.get_text().strip())
+            
+                # Si no se encontraron encabezados, crear automáticos
+                if not headers:
+                    # Determinar número de columnas contando celdas en la primera fila
+                    primera_fila = tabla_html.find('tr')
+                    if primera_fila:
+                        num_cols = len(primera_fila.find_all(['td', 'th']))
+                        headers = [f"Columna {i+1}" for i in range(num_cols)]
+            
+                # Extraer filas de datos
+                rows = []
+                for tr in tabla_html.find_all('tr')[1:] if headers else tabla_html.find_all('tr'):
+                    row_data = []
+                    for td in tr.find_all(['td', 'th']):
+                        cell_text = td.get_text().strip()
+                        row_data.append(cell_text)
+                
+                    if row_data:  # Ignorar filas vacías
+                        rows.append(row_data)
+            
+                # Verificar si todos los datos tienen la misma longitud que los encabezados
+                if headers:
+                    for i, row in enumerate(rows):
+                        # Ajustar si hay desajuste en el número de columnas
+                        if len(row) < len(headers):
+                            rows[i] = row + [""] * (len(headers) - len(row))
+                        elif len(row) > len(headers):
+                            rows[i] = row[:len(headers)]
+            
+                # Si hay suficientes datos, crear la estructura de la tabla
+                if rows and (len(rows) > 1 or len(headers) > 1):
+                    tabla = {
+                        "id": f"tabla_{idx+1}",
+                        "encabezados": headers,
+                        "filas": rows,
+                        "num_filas": len(rows),
+                        "num_columnas": len(headers) if headers else len(rows[0]) if rows else 0
+                    }
+                    tablas.append(tabla)
+                
+            except Exception as e:
+                logger.error(f"Error al procesar tabla {idx+1}: {e}")
+                continue
+            
+        return tablas
+
+    def _extraer_datos_comerciales(self, soup: BeautifulSoup, contenido_texto: str) -> Dict[str, Any]:
+        """
+        Extrae información comercial como precios, ofertas, etc.
+    
         Args:
             soup: Objeto BeautifulSoup con el HTML parseado
             contenido_texto: Texto del contenido extraído
-            
+        
         Returns:
-            Diccionario con datos de contacto extraídos
+            Diccionario con datos comerciales extraídos
         """
-        contacto = {
-            "emails": [],
-            "telefonos": [],
-            "direcciones": [],
-            "redes_sociales": {}
+        comercial = {
+            "precios": [],
+            "moneda": None,
+            "ofertas": []
         }
-        
-        # Extraer emails
-        emails = re.findall(r'[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}', contenido_texto)
-        contacto["emails"] = list(set(emails))  # Eliminar duplicados
-        
-        # Extraer teléfonos (múltiples formatos)
-        patrones_telefono = [
-            r'\+\d{1,4}[\s-]?\d{1,3}[\s-]?\d{3,4}[\s-]?\d{3,4}',  # +XX XXX XXXX XXX
-            r'\(\d{3,4}\)[\s-]?\d{3}[\s-]?\d{4}',  # (XXX) XXX XXXX
-            r'\d{3}[\s-]?\d{2,3}[\s-]?\d{2,3}[\s-]?\d{2,3}'  # XXX XX XX XX
+    
+        # Extraer precios (patrones comunes en EUR, USD, etc.)
+        patrones_precio = [
+            r'(?:\$|€|£)\s?([0-9]+(?:[,.][0-9]{1,2})?)',  # $10, $10.99, €10, etc.
+            r'([0-9]+(?:[,.][0-9]{1,2})?)(?:\s?(?:\$|€|£|USD|EUR|GBP))',  # 10$, 10.99€, etc.
+            r'precio:?\s*(?:\$|€|£)?\s?([0-9]+(?:[,.][0-9]{1,2})?)'  # precio: $10.99
         ]
-        
-        telefonos = []
-        for patron in patrones_telefono:
-            telefonos.extend(re.findall(patron, contenido_texto))
-        contacto["telefonos"] = list(set(telefonos))  # Eliminar duplicados
-        
-        # Extraer direcciones (heurística simple)
-        # Buscar patrones comunes como códigos postales
-        lineas = contenido_texto.split('\n')
-        for i, linea in enumerate(lineas):
-            if re.search(r'\b\d{5}\b|\b[A-Z]{1,2}\d{1,2}\s\d[A-Z]{2}\b', linea):  # Código postal US o UK
-                # Tomar 2 líneas antes y después como posible dirección
-                inicio = max(0, i-2)
-                fin = min(len(lineas), i+3)
-                direccion_potencial = ' '.join(lineas[inicio:fin]).strip()
-                if len(direccion_potencial) > 10 and len(direccion_potencial) < 200:
-                    contacto["direcciones"].append(direccion_potencial)
-        
-        # Extraer enlaces a redes sociales
-        redes_sociales = {
-            'facebook': r'(?:facebook\.com|fb\.com)/([a-zA-Z0-9._%+-]+)',
-            'twitter': r'(?:twitter\.com|x\.com)/([a-zA-Z0-9_]+)',
-            'instagram': r'instagram\.com/([a-zA-Z0-9_.]+)',
-            'linkedin': r'linkedin\.com/(?:in|company)/([a-zA-Z0-9_-]+)',
-            'youtube': r'youtube\.com/(?:user|channel)/([a-zA-Z0-9_-]+)',
-            'github': r'github\.com/([a-zA-Z0-9_-]+)'
-        }
-        
-        for red, patron in redes_sociales.items():
-            for a in soup.find_all('a', href=re.compile(patron)):
+    
+        precios = []
+        monedas = {"$": "USD", "€": "EUR", "£": "GBP"}
+    
+        for patron in patrones_precio:
+            for match in re.finditer(patron, contenido_texto, re.IGNORECASE):
+                precio = match.group(1).strip()
+                # Detectar moneda
+                simbolo = match.group(0)[0] if match.group(0)[0] in monedas else None
+                if simbolo in monedas and not comercial["moneda"]:
+                    comercial["moneda"] = monedas[simbolo]
+                
+                # Convertir a formato numérico
                 try:
-                    match = re.search(patron, a['href'])
-                    if match:
-                        contacto["redes_sociales"][red] = match.group(1)
+                    precio_normalizado = float(precio.replace(',', '.'))
+                    precios.append(precio_normalizado)
                 except:
+                    pass
+    
+        # Eliminar duplicados y ordenar
+        comercial["precios"] = sorted(list(set(precios)))
+    
+        # Buscar ofertas o descuentos
+        patrones_ofertas = [
+            r'(?:oferta|descuento|rebaja|ahorra)(?:[\s:]+)(\d+%|\d+\s+%)',
+            r'(?:\d+)%\s+(?:de descuento|off|menos)'
+        ]
+    
+        for patron in patrones_ofertas:
+            ofertas = re.findall(patron, contenido_texto, re.IGNORECASE)
+            for oferta in ofertas:
+                comercial["ofertas"].append(oferta.strip())
+    
+        return comercial
+
+    def _detectar_tipo_contenido(self, url: str, soup: BeautifulSoup) -> str:
+        """
+        Detecta el tipo de contenido (artículo, blog, tienda, etc.)
+    
+        Args:
+            url: URL de la página
+            soup: Objeto BeautifulSoup con el HTML parseado
+        
+        Returns:
+            String con el tipo de contenido detectado
+        """
+        # Verificar metadatos para algunos tipos de contenido comunes
+        og_type = soup.find('meta', property='og:type')
+        if og_type and og_type.get('content'):
+            og_content = og_type.get('content').lower()
+            if 'article' in og_content:
+                return 'articulo'
+            elif 'product' in og_content:
+                return 'producto'
+            elif 'video' in og_content:
+                return 'video'
+    
+        # Detectar por URL
+        url_lower = url.lower()
+        if re.search(r'/(blog|articulo|post|entrada)/', url_lower):
+            return 'blog'
+        elif re.search(r'/(product|producto)/', url_lower):
+            return 'producto'
+        elif re.search(r'/(video|watch)/', url_lower):
+            return 'video'
+        elif re.search(r'/(categoria|category)/', url_lower):
+            return 'categoria'
+    
+        # Detectar por elementos específicos en la página
+        if soup.find('article'):
+            return 'articulo'
+        elif soup.find(class_=lambda c: c and ('product' in c.lower() or 'precio' in c.lower())):
+            return 'producto'
+        elif soup.find('video') or soup.find('iframe', src=lambda s: s and ('youtube' in s or 'vimeo' in s)):
+            return 'video'
+    
+        # Detectar blogs
+        if soup.find_all('time') or soup.find('div', class_=lambda c: c and 'blog' in c.lower()):
+            return 'blog'
+    
+        # Por defecto
+        return 'pagina'
+
+    def _extraer_imagenes(self, soup: BeautifulSoup, base_url: str) -> List[Dict[str, str]]:
+        """
+        Extrae imágenes relevantes de la página
+    
+        Args:
+            soup: Objeto BeautifulSoup con el HTML parseado
+            base_url: URL base para resolver rutas relativas
+        
+        Returns:
+            Lista de diccionarios con información de imágenes
+        """
+        imagenes = []
+        max_imagenes = 5  # Limitar a un número razonable de imágenes
+    
+        # Primero buscar imágenes de Open Graph (suelen ser las principales)
+        og_image = soup.find('meta', property='og:image')
+        if og_image and og_image.get('content'):
+            url_imagen = og_image.get('content')
+            # Convertir URL relativa a absoluta si es necesario
+            if url_imagen.startswith('/'):
+                parsed_base = urlparse(base_url)
+                url_imagen = f"{parsed_base.scheme}://{parsed_base.netloc}{url_imagen}"
+            
+            imagenes.append({
+                "url": url_imagen,
+                "alt": "Imagen principal",
+                "tipo": "principal"
+            })
+    
+        # Buscar imágenes con cierto tamaño (posiblemente relevantes)
+        for img in soup.find_all('img', src=True):
+            if len(imagenes) >= max_imagenes:
+                break
+            
+            # Ignorar iconos y pequeñas imágenes UI
+            src = img.get('src', '')
+            if 'icon' in src.lower() or 'logo' in src.lower() or not src:
+                continue
+            
+            # Verificar tamaño si está disponible
+            width = img.get('width', '0')
+            height = img.get('height', '0')
+            
+            try:
+                w, h = int(width), int(height)
+                if w < 100 or h < 100:  # Probablemente un icono
                     continue
-        
-        return contacto
-        
+            except:
+                pass  # Si no podemos determinar el tamaño, continuamos
+            
+            # Convertir URL relativa a absoluta si es necesario
+            url_imagen = src
+            if url_imagen.startswith('//'):
+                url_imagen = f"https:{url_imagen}"
+            elif url_imagen.startswith('/'):
+                parsed_base = urlparse(base_url)
+                url_imagen = f"{parsed_base.scheme}://{parsed_base.netloc}{url_imagen}"
+            elif not url_imagen.startswith(('http://', 'https://')):
+                # URL relativa
+                if base_url.endswith('/'):
+                    url_imagen = f"{base_url}{url_imagen}"
+                else:
+                    url_imagen = f"{base_url}/{url_imagen}"
+            
+            # Extraer texto alternativo
+            alt_text = img.get('alt', '')
+            
+            # Determinar tipo de imagen
+            tipo = 'contenido'
+            if 'banner' in url_imagen.lower() or 'hero' in url_imagen.lower():
+                tipo = 'banner'
+            elif 'thumb' in url_imagen.lower() or 'preview' in url_imagen.lower():
+                tipo = 'miniatura'
+            
+            # Evitar duplicados
+            if not any(img['url'] == url_imagen for img in imagenes):
+                imagenes.append({
+                    "url": url_imagen,
+                    "alt": alt_text,
+                    "tipo": tipo
+                })
+    
+        return imagenes
+
     def obtener_fecha_actual(self) -> Dict[str, Any]:
         """
         Devuelve información sobre la fecha y hora actual (local, no requiere conexión)

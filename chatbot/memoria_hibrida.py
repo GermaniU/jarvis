@@ -1298,7 +1298,7 @@ class MemoryAdapter:
     
     def obtener_ultimos_recuerdos(self, n: int = 3) -> List[Dict[str, Any]]:
         """
-        Obtiene los N recuerdos más recientes
+        Obtiene los N recuerdos más recientes delegando al gestor de memoria subyacente
         
         Args:
             n: Número de recuerdos a obtener
@@ -1306,22 +1306,56 @@ class MemoryAdapter:
         Returns:
             List[Dict[str, Any]]: Lista de los últimos recuerdos
         """
-        archivos = self._cargar_archivos_recuerdos()[:n]
-        resultados = []
-        
-        for archivo in archivos:
+        # Delegación correcta al gestor de memoria
+        if hasattr(self.memory_manager, 'obtener_recuerdos_recientes'):
+            # Usar método específico si existe (MemoriaHibrida)
+            return self.memory_manager.obtener_recuerdos_recientes(limite=n)
+            
+        elif hasattr(self.memory_manager, '_cargar_archivos_recuerdos'):
+            # Implementación alternativa si el gestor tiene los métodos necesarios
             try:
-                contenido = self.leer_recuerdo(archivo)
-                fecha = self._extraer_fecha_de_archivo(archivo)
+                archivos = self.memory_manager._cargar_archivos_recuerdos()[:n]
+                resultados = []
                 
-                resultados.append({
-                    "id": archivo,
-                    "contenido": contenido,
-                    "fecha": fecha,
-                    "score_final": 0.9,  # Alta relevancia por ser reciente
-                    "importante": archivo in self.recuerdos_importantes
-                })
+                for archivo in archivos:
+                    try:
+                        contenido = self.memory_manager.leer_recuerdo(archivo)
+                        
+                        # Intentar extraer fecha con el método del gestor si existe
+                        fecha = None
+                        if hasattr(self.memory_manager, '_extract_datetime_from_filename'):
+                            fecha_obj = self.memory_manager._extract_datetime_from_filename(archivo)
+                            if fecha_obj:
+                                fecha = fecha_obj.strftime("%Y-%m-%d %H:%M:%S")
+                        elif hasattr(self.memory_manager, '_extraer_fecha_de_archivo'):
+                            fecha = self.memory_manager._extraer_fecha_de_archivo(archivo)
+                        
+                        if not fecha:
+                            # Extraer fecha del nombre (formato YYYYMMDD_HHMMSS)
+                            match = re.match(r'(\d{8})_(\d{6})', archivo)
+                            if match:
+                                fecha = f"{match.group(1)[:4]}-{match.group(1)[4:6]}-{match.group(1)[6:8]}"
+                            else:
+                                fecha = "Fecha desconocida"
+                        
+                        # Determinar si es importante
+                        es_importante = "_important" in archivo
+                        
+                        resultados.append({
+                            "id": archivo,
+                            "contenido": contenido,
+                            "fecha": fecha,
+                            "score_final": 0.9,  # Alta relevancia por ser reciente
+                            "importante": es_importante
+                        })
+                    except Exception as e:
+                        logger.error(f"Error al leer recuerdo reciente {archivo}: {e}")
+                
+                return resultados
             except Exception as e:
-                logger.error(f"Error al leer recuerdo reciente {archivo}: {e}")
-        
-        return resultados
+                logger.error(f"Error al obtener recuerdos recientes: {e}")
+                return []
+        else:
+            # Alternativa simple si no hay métodos específicos
+            logger.warning("El gestor de memoria actual no soporta obtener_ultimos_recuerdos")
+            return []
