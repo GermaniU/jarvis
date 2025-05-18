@@ -1,111 +1,204 @@
-# JARVIS - Asistente IA Minimalista
+# JARVIS: Asistente Virtual Inteligente
 
-JARVIS es un asistente de IA minimalista basado en modelos LLM (Large Language Models) que ofrece una implementación liviana y flexible, ideal para sistemas con recursos limitados o para quienes buscan una solución simple pero potente.
+![JARVIS](https://img.shields.io/badge/JARVIS-v1.0-blue)
+![Python](https://img.shields.io/badge/Python-3.11+-green)
+![LLM](https://img.shields.io/badge/LLM-Ollama-orange)
+![License](https://img.shields.io/badge/license-MIT-blue)
 
-## 🌟 Características
+JARVIS es un asistente virtual de código abierto diseñado para interactuar con modelos de lenguaje locales a través de Ollama, incorporar memoria persistente, realizar búsquedas web privadas y analizar contenido en línea.
 
-- **Implementación minimalista**: Diseñado para ser ligero y eficiente
-- **Interfaz dual**: Modo consola y modo gráfico (GUI opcional)
-- **Integración web**: Capacidad de búsqueda web (opcional)
-- **Motor de chat modular**: Basado en el framework LlamaIndex
-- **Fácil de personalizar**: Arquitectura modular para extender funcionalidades
+## 🌟 Características principales
 
-## 🛠️ Requisitos
+### 💬 Interfaz conversacional
+- **Chat natural**: Interactúa de forma conversacional con modelos LLM locales
+- **Interfaz dual**: Modo consola y GUI basada en Gradio
+- **Síntesis de voz**: Responde verbalmente mediante TTS incorporado
 
-- Python 3.8+
-- Ollama (para modelos locales)
-- Dependencias listadas en `requirements.txt`
+### 🧠 Sistema de memoria
+- **Memoria persistente**: Almacena y recupera conversaciones pasadas
+- **Embeddings vectoriales**: Búsqueda semántica de recuerdos relevantes
+- **Contexto adaptativo**: Aprovecha conversaciones anteriores para mejorar respuestas
 
-## 📋 Dependencias
+### 🔍 Capacidades web
+- **Búsqueda privada**: Busca información en la web sin depender de APIs propietarias
+- **Análisis de páginas**: Extrae contenido estructurado de sitios web
+- **Extracción inteligente**: Procesamiento específico por tipo de sitio (GitHub, Stack Overflow, Wikipedia, etc.)
+- **Caché local**: Almacena resultados para reducir tráfico y mejorar velocidad
 
-```
-llama-index==0.9.4
-llama-index-embeddings-huggingface==0.2.3
-llama-index-llms-ollama==0.1.1
-llama-index-embeddings-ollama==0.1.1
-bs4==0.0.2
-rich==13.5.3
-gradio==3.50.2
-requests==2.31.0
-```
+### 🛠️ Características avanzadas
+- **Análisis de datos**: Extracción de tablas, datos comerciales, información de contacto
+- **Estadísticas de uso**: Seguimiento de búsquedas y dominios frecuentes
+- **Personalización**: Preferencias de búsqueda y dominios favoritos/bloqueados
+
+## 📋 Requisitos
+
+- Python 3.11 o superior
+- [Ollama](https://ollama.ai/) instalado y configurado
+- Paquetes requeridos:
+  - llama-index (0.8.34)
+  - langchain (compatible con llama-index)
+  - gradio (3.50.2+)
+  - rich, requests, beautifulsoup4
 
 ## 🚀 Instalación
 
-1. Clonar el repositorio:
-   ```
-   git clone https://github.com/su-usuario/jarvis.git
+1. Clone este repositorio:
+   ```bash
+   git clone https://github.com/tuusuario/jarvis.git
    cd jarvis
    ```
 
-2. Crear y activar un entorno virtual:
-   ```
+2. Cree un entorno virtual:
+   ```bash
    python -m venv .venv
-   source .venv/Scripts/activate  # En Windows con Git Bash
-   # O
-   .\.venv\Scripts\Activate.ps1   # En Windows con PowerShell
    ```
 
-3. Instalar las dependencias:
-   ```
-   pip install -r requirements.txt
+3. Active el entorno:
+   ```bash
+   # En Windows
+   .venv\Scripts\activate
+   
+   # En Linux/macOS
+   source .venv/bin/activate
    ```
 
-4. Configurar Ollama (si se usa localmente):
+4. Instale las dependencias:
+   ```bash
+   python recreate_env.py
    ```
-   ollama pull deepseek-coder  # O cualquier otro modelo compatible
+   O manualmente:
+   ```bash
+   pip install langchain>=0.0.293
+   pip install llama-index==0.8.34
+   pip install gradio==3.50.2 rich==13.6.0 requests==2.32.3 beautifulsoup4==4.12.2
+   pip install python-dotenv
    ```
 
 ## 🎮 Uso
 
-### Modo Consola
-```
-python main.py
-```
-
-### Modo GUI
-```
-python main.py --gui
-# o
+### Modo interfaz gráfica (GUI)
+```bash
 python main.py -g
 ```
 
-## 📁 Estructura del Proyecto
+### Modo consola
+```bash
+python main.py
+```
+
+## 🖥️ Interfaz gráfica
+
+La interfaz gráfica está organizada en pestañas:
+
+### Pestaña "Chat Principal"
+- **Conversación**: Interactúa naturalmente con JARVIS
+- **Comandos especiales**: 
+  - `buscar [término]`: Busca información en la web
+  - `analizar [url]`: Analiza una página web en detalle
+
+### Pestaña "Herramientas Web"
+- **Búsqueda web**: Búsqueda manual de información
+- **Análisis de páginas**: Extracción de información de URLs
+- **Estadísticas**: Visualiza el uso del motor web
+- **Historial**: Consulta búsquedas recientes
+
+## 🧩 Estructura del proyecto
 
 ```
 jarvis/
-├── .venv/                 # Entorno virtual (no incluido en git)
-├── chatbot/               # Módulo principal
-│   ├── llm_wrapper.py     # Wrapper para el motor LLM
-│   ├── web.py             # Implementación de búsqueda web
-│   └── interfaz.py        # Interfaz de consola
-├── gui.py                 # Interfaz gráfica (opcional)
-├── main.py                # Punto de entrada principal
-├── requirements.txt       # Dependencias del proyecto
-└── README.md              # Esta documentación
+├── main.py             # Punto de entrada principal
+├── gui.py              # Interfaz gráfica basada en Gradio
+├── chatbot/
+│   ├── interfaz.py     # Interfaz de consola
+│   ├── llm_wrapper.py  # Wrapper para modelos LLM
+│   ├── memoria.py      # Sistema de gestión de memoria
+│   ├── web.py          # Motor de búsqueda web privado
+│   └── voz.py          # Sistema de síntesis de voz
+├── data/               # Directorio para documentos de conocimiento
+├── memory/             # Directorio para almacenamiento de memoria
+│   └── web_cache/      # Caché de búsquedas web
+└── embeddings/         # Índices vectoriales persistentes
 ```
 
-## 🧩 Personalización
+## 🔧 Componentes principales
 
-### Cambiar modelo LLM
-Edite el archivo `chatbot/llm_wrapper.py` para configurar un modelo diferente.
+### main.py
+Punto de entrada que inicializa los componentes y lanza la interfaz.
 
-### Extender funcionalidades
-La arquitectura modular permite agregar nuevas capacidades creando nuevos módulos en el directorio `chatbot/`.
+### memoria.py
+Sistema de memoria que utiliza embeddings vectoriales para:
+- Guardar recuerdos de conversaciones
+- Recuperar contexto relevante para preguntas nuevas
+- Persistir índices para uso futuro
 
-## 📝 Logging
+### web.py
+Motor web con funcionalidades avanzadas:
+- Búsqueda privada sin depender de APIs propietarias
+- Extracción inteligente de contenido por tipo de sitio
+- Análisis detallado de páginas web
+- Caché local para mejorar rendimiento
 
-JARVIS incluye un sistema de registro que guarda información en:
-- Consola (stdout)
-- Archivo `jarvis_main.log`
+### `llm_wrapper.py`
+Interfaz simplificada para comunicación con modelos LLM locales:
+- Integración con Ollama
+- Gestión de contexto para mejorar respuestas
+- Carga de documentos de conocimiento local
 
-## 🤝 Contribuciones
+## 🛠️ Personalización
 
-Las contribuciones son bienvenidas. Por favor, abra un issue primero para discutir lo que le gustaría cambiar.
+### Modelos LLM
+Por defecto, JARVIS utiliza `deepseek-r1:14b` a través de Ollama. Puedes modificar el modelo en llm_wrapper.py.
 
-## 📜 Licencia
+### Embeddings
+Los embeddings utilizan Ollama con el modelo `nomic-embed-text`. Puedes cambiarlo en memoria.py.
 
-[MIT](LICENSE)
+### Preferencias web
+El motor web almacena preferencias como dominios favoritos/bloqueados en `memory/web_cache/preferences.json`.
+
+## 🔒 Privacidad
+
+JARVIS está diseñado con la privacidad en mente:
+- Ejecuta modelos LLM localmente sin enviar datos a servicios externos
+- El motor web proporciona resultados sin depender de APIs comerciales
+- Todos los datos se almacenan localmente en tu sistema
+
+## ⚙️ Características técnicas avanzadas
+
+### Motor web
+- **Extracción específica por sitio**: Lógica especializada para GitHub, Stack Overflow, Wikipedia, YouTube, Twitter, Reddit, Amazon y Medium
+- **Análisis de páginas**: Extrae información estructurada como tablas, precios, emails y datos de contacto
+- **Mitigación anti-bloqueo**: Rotación de User-Agent y manejo de redireccionamientos
+- **Aprendizaje**: Recolecta estadísticas sobre búsquedas y dominios para mejorar resultados futuros
+
+### Sistema de memoria
+- **Embeddings vectoriales**: Convierte recuerdos en vectores para búsqueda semántica
+- **Persistencia**: Guarda índices vectoriales para uso entre sesiones
+- **Contexto adaptativo**: Recupera información relevante basada en la consulta actual
+
+### Integración LLM
+- **Ollama local**: Integración nativa con modelos ejecutados localmente
+- **Manejo de contexto**: Formatea prompts con el contexto relevante obtenido de la memoria
+- **Formato flexible**: Procesa varios formatos de respuesta para compatibilidad con diferentes modelos
+
+## 📝 Próximas funcionalidades
+
+- [ ] Soporte para múltiples modelos LLM
+- [ ] Integración con bases de datos locales
+- [ ] API REST para integración con otros sistemas
+- [ ] Extensión del motor web con fuentes adicionales
+- [ ] Reconocimiento de voz para interfaz manos libres
+
+## 📄 Licencia
+
+Este proyecto está licenciado bajo MIT License - vea el archivo LICENSE para más detalles.
+
+## 🙏 Agradecimientos
+
+- [llama-index](https://github.com/jerryjliu/llama_index) por las capacidades de indexación y recuperación
+- [Ollama](https://ollama.ai/) por proporcionar una forma sencilla de ejecutar LLMs localmente
+- [Gradio](https://www.gradio.app/) por la interfaz web interactiva
+- Todos los contribuyentes de código abierto que hacen posible proyectos como este
 
 ---
 
-Desarrollado con ❤️ para simplificar la interacción con modelos de IA.
+**JARVIS** - Tu asistente virtual personal, privado y potente. ¡Disfruta conversando, aprendiendo y explorando!
