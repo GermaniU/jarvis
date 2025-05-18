@@ -1,5 +1,5 @@
 llama-index==0.9.4
-llama-index-embeddings-huggingface==0.2.4  # Use this specific older version
+llama-index-embeddings-huggingface==0.2.3
 llama-index-llms-ollama==0.1.1
 llama-index-embeddings-ollama==0.1.1
 bs4==0.0.2
