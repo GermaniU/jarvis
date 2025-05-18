@@ -46,3 +46,7 @@ Thumbs.db
 .vscode/
 *.swp
 *.swo
+
+# Archivos de memoria del usuario y cache de IA
+memory/
+embeddings/
