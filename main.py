@@ -23,10 +23,12 @@ try:
     # Crear instancia de memoria
     memoria = MemoryManager()
 
-    # Importar LLM
+    # Importar LLM con personalidad
+    from chatbot.asistente import obtener_llm
     from chatbot.llm_wrapper import create_chat_engine
     logger.info("Creando motor de chat...")
-    chat_engine = create_chat_engine()
+    llm = obtener_llm(personalidad="jarvis")
+    chat_engine = create_chat_engine(llm)
 
     # Verificar argumentos
     usar_gui = any(arg in sys.argv for arg in ["--gui", "-g"])
